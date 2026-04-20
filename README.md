@@ -51,7 +51,10 @@ python -m askiviu <image-or-directory>
 - `-x`, `--extractformat`: Format for extracted video frames (`jpeg`, `png`) (default: `jpeg`)
 
 ## Dependencies
-See `requirements.txt`.
+
+- numpy
+- Pillow
+- ffmpeg
 
 ## License
 MIT
