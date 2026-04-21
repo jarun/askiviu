@@ -11,14 +11,7 @@ Render images and video previews as Braille dot art in the terminal with xterm-2
 - Video frame extraction (with ffmpeg)
 - Keyboard navigation and slideshow mode
 
-## Formats
-
-**Image:** PNG, JPG, JPEG, BMP, GIF, TIFF, WEBP
-
-**Video:** MP4, MKV, AVI, MOV, WEBM, FLV, WMV, MPEG, MPG
-
-## Samples
-
+<br>
 <img width="1323" height="826" alt="image_01" src="https://github.com/user-attachments/assets/f2becbbc-cfeb-42b3-bd92-3882ff3fb570" />
 <br><br>
 <img width="1333" height="827" alt="image_02" src="https://github.com/user-attachments/assets/62bc16a8-246b-4b5a-a11e-fd0faa5c8066" />
@@ -70,6 +63,12 @@ python -m dot <file-or-directory>
 -k, --seek       : Seek position (in HH:MM:SS or seconds) to extract frame from videos (default: 10)
 -f, --format     : Format for extracted video frames (`jpeg`, `png`) (default: `jpeg`)
 ```
+
+## Formats
+
+**Image:** PNG, JPG, JPEG, BMP, GIF, TIFF, WEBP
+
+**Video:** MP4, MKV, AVI, MOV, WEBM, FLV, WMV, MPEG, MPG
 
 ## License
 
