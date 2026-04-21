@@ -3,6 +3,7 @@
 Render images and video previews as Braille dot art in the terminal with xterm-256 color and ncurses dim/normal/bold attributes.
 
 ## Features
+
 - Braille art rendering for images
 - Animated GIF support
 - xterm-256 color and grayscale
@@ -10,7 +11,13 @@ Render images and video previews as Braille dot art in the terminal with xterm-2
 - Video frame extraction (with ffmpeg)
 - Keyboard navigation and slideshow mode
 
-## Example Images
+## Formats
+
+**Image:** PNG, JPG, JPEG, BMP, GIF, TIFF, WEBP
+
+**Video:** MP4, MKV, AVI, MOV, WEBM, FLV, WMV, MPEG, MPG
+
+## Samples
 
 <img width="1323" height="826" alt="image_01" src="https://github.com/user-attachments/assets/f2becbbc-cfeb-42b3-bd92-3882ff3fb570" />
 <br><br>
@@ -21,7 +28,7 @@ Render images and video previews as Braille dot art in the terminal with xterm-2
 ## Usage
 
 ```sh
-python -m dot <image-or-directory>
+python -m dot <file-or-directory>
 ```
 
 - To render a single image:
@@ -33,41 +40,37 @@ python -m dot <image-or-directory>
     python -m dot path/to/directory/
     ```
 
-## Keyboard Navigation
+## Navigation
 
-| Key         | Symbol | Action         |
-|-------------|--------|----------------|
-| Right Arrow | →      | Next image     |
-| l           | l      | Next image     |
-| Space       | ␣      | Next image     |
-| Left Arrow  | ←      | Previous image |
-| h           | h      | Previous image |
-| Up Arrow    | ↑      | First image    |
-| Down Arrow  | ↓      | Last image     |
+| Key             | Action   |
+|-----------------|----------|
+| Right, l, Space | Next     |
+| Left, h         | Previous |
+| Up              | First    |
+| Down            | Last     |
+| q, Esc          | Quit     |
+
 
 ## Dependencies
 
-| Package  | Reason                                      |
+| Package  | Usage                                       |
 |----------|---------------------------------------------|
-| numpy    | Fast array operations for image processing   |
-| Pillow   | Image loading and manipulation               |
-- `q`, `Esc`: Quit
+| numpy    | Fast array operations for image processing  |
+| Pillow   | Image loading and manipulation              |
+| ffmpeg   | Video frame extraction                      |
 
 ## Arguments
 
-- `-S`, `--no-sharpen`: Disable edge sharpening (default: sharpen enabled)
-- `-C`, `--no-color`: Disable color (greyscale only; default: color enabled)
-- `-d`, `--dither`: Dithering mode (`ordered`, `error`, `none`) (default: `ordered`)
-- `-w`, `--wait`: Wait time for slideshow/single image in seconds (default: 5)
-- `-s`, `--slideshow`: Enable slideshow mode (default: off)
-- `-f`, `--frametime`: Time position (in format HH:MM:SS or seconds) to extract frame from video files (default: 0:0:10)
-- `-x`, `--extractformat`: Format for extracted video frames (`jpeg`, `png`) (default: `jpeg`)
-
-## Dependencies
-
-- numpy
-- Pillow
-- ffmpeg
+```
+-S, --no-sharpen : Disable edge sharpening (default: sharpen enabled)
+-C, --no-color   : Disable color (greyscale only; default: color enabled)
+-d, --dither     : Dithering mode (`ordered`, `error`, `none`) (default: `ordered`)
+-w, --wait       : Wait time for slideshow/single image in seconds (default: 5)
+-s, --slideshow  : Enable slideshow mode (default: off)
+-k, --seek       : Seek position (in HH:MM:SS or seconds) to extract frame from videos (default: 10)
+-f, --format     : Format for extracted video frames (`jpeg`, `png`) (default: `jpeg`)
+```
 
 ## License
+
 MIT

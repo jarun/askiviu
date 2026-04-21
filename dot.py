@@ -315,7 +315,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
 def main():
 
     parser = argparse.ArgumentParser(description="Render an image or all images/videos in a directory as Braille dots using ncurses with optional xterm-256 color.")
-    parser.add_argument("image", nargs="?", help="Path to the image file or directory (optional)")
+    parser.add_argument("path", nargs="?", help="Path to the image/video file or directory (optional)")
     parser.add_argument("-S", "--no-sharpen", action="store_true", help="Disable edge sharpening")
     parser.add_argument("-C", "--no-color", action="store_true", help="Disable color (greyscale only with dim/normal/bold)")
     parser.add_argument("-d", "--dither", choices=["ordered", "error", "none"], default="ordered",
@@ -323,11 +323,11 @@ def main():
 
     parser.add_argument("-w", "--wait", type=float, default=5, help="Wait time in seconds for single image mode or slideshow (default: 5)")
     parser.add_argument("-s", "--slideshow", action="store_true", help="Enable slideshow mode (auto-advance images, honors --wait)")
-    parser.add_argument("-f", "--frametime", type=str, default="0:0:10", help="Time position (in format HH:MM:SS or seconds) to extract frame from video files (default: 0:0:10)")
-    parser.add_argument("-x", "--extractformat", type=str, choices=["jpeg", "png"], default="jpeg", help="Format for extracted video frames: jpeg (default) or png")
+    parser.add_argument("-k", "--seek", type=str, default="0:0:10", help="Seek position (in HH:MM:SS or seconds) to extract frame from videos (default: 10)")
+    parser.add_argument("-f", "--format", type=str, choices=["jpeg", "png"], default="jpeg", help="Format for extracted video frames: jpeg (default) or png")
     args = parser.parse_args()
 
-    if args.image == '-':
+    if args.path == '-':
         # Read image from stdin
         from PIL import Image
         import tempfile
@@ -353,11 +353,11 @@ def main():
         finally:
             os.unlink(tmp_path)
         return
-    elif args.image:
+    elif args.path:
         # If a directory is passed, render all images/videos in it
-        if os.path.isdir(args.image):
-            directory = os.path.abspath(args.image)
-            image_files = get_image_files(directory, include_videos=args.frametime is not None)
+        if os.path.isdir(args.path):
+            directory = os.path.abspath(args.path)
+            image_files = get_image_files(directory, include_videos=args.seek is not None)
             if not image_files:
                 print(f"No images or videos found in directory: {directory}", file=sys.stderr)
                 sys.exit(1)
@@ -365,10 +365,10 @@ def main():
         else:
             # If --frametime is specified, treat as video and extract frame
             video_exts = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.mpeg', '.mpg']
-            ext = os.path.splitext(args.image)[1].lower()
-            if args.frametime and ext in video_exts:
+            ext = os.path.splitext(args.path)[1].lower()
+            if args.seek and ext in video_exts:
                 try:
-                    img = extract_video_frame(args.image, args.frametime, args.extractformat)
+                    img = extract_video_frame(args.path, args.seek, args.format)
                 except Exception as e:
                     print(f"Failed to extract frame: {e}", file=sys.stderr)
                     sys.exit(1)
@@ -376,21 +376,21 @@ def main():
                 idx = 0
                 curses.wrapper(lambda *a, **kw: render(*a, **kw, single_image_mode=True, wait_time=args.wait, slideshow=args.slideshow), image_files, idx, not args.no_sharpen, args.dither, not args.no_color)
                 return
-            abs_image = os.path.abspath(args.image)
-            directory = os.path.dirname(abs_image) or os.getcwd()
+            abs_path = os.path.abspath(args.path)
+            directory = os.path.dirname(abs_path) or os.getcwd()
             image_files = get_image_files(directory)
             if not image_files:
                 print(f"No images found in directory: {directory}", file=sys.stderr)
                 sys.exit(1)
             try:
-                idx = image_files.index(abs_image)
+                idx = image_files.index(abs_path)
             except ValueError:
-                base = os.path.basename(abs_image)
+                base = os.path.basename(abs_path)
                 idx = next((i for i, f in enumerate(image_files) if os.path.basename(f) == base), 0)
     else:
         # No argument: use current directory
         directory = os.getcwd()
-        include_videos = args.frametime is not None
+        include_videos = args.seek is not None
         image_files = get_image_files(directory, include_videos=include_videos)
         if not image_files:
             print(f"No images or videos found in current directory.", file=sys.stderr)
@@ -410,7 +410,7 @@ def main():
             try:
                 if ext in video_exts:
                     try:
-                        img = extract_video_frame(path, args.frametime, args.extractformat)
+                            img = extract_video_frame(path, args.seek, args.format)
                     except Exception as e:
                         stdscr.clear()
                         stdscr.addstr(0, 0, f"Video frame error: {e}")
