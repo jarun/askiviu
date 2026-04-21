@@ -32,6 +32,10 @@ python -m dot <file-or-directory>
     ```sh
     python -m dot path/to/directory/
     ```
+- To run a slideshow with a custom delay (e.g. 3 seconds):
+    ```sh
+    python -m dot -s 3 path/to/directory/
+    ```
 
 ## Navigation
 
@@ -42,7 +46,6 @@ python -m dot <file-or-directory>
 | Up              | First    |
 | Down            | Last     |
 | q, Esc          | Quit     |
-
 
 ## Dependencies
 
@@ -55,13 +58,12 @@ python -m dot <file-or-directory>
 ## Arguments
 
 ```
--S, --no-sharpen : Disable edge sharpening (default: sharpen enabled)
--C, --no-color   : Disable color (greyscale only; default: color enabled)
--d, --dither     : Dithering mode (`ordered`, `error`, `none`) (default: `ordered`)
--w, --wait       : Wait time for slideshow/single image in seconds (default: 5)
--s, --slideshow  : Enable slideshow mode (default: off)
--k, --seek       : Seek position (in HH:MM:SS or seconds) to extract frame from videos (default: 10)
--f, --format     : Format for extracted video frames (`jpeg`, `png`) (default: `jpeg`)
+-S, --no-sharpen        : Disable edge sharpening (default: sharpen enabled)
+-C, --no-color          : Disable color (greyscale only; default: color enabled)
+-d, --dither            : Dithering mode (`ordered`, `error`, `none`) (default: `ordered`)
+-s, --slideshow [delay] : Enable slideshow mode with optional integer delay in seconds (default: 5)
+-k, --seek              : Seek position (in HH:MM:SS or seconds) to extract frame from videos (default: 10)
+-f, --format            : Format for extracted video frames (`jpeg`, `png`) (default: `jpeg`)
 ```
 
 ## Formats

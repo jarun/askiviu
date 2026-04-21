@@ -350,11 +350,17 @@ def main():
     parser.add_argument("-d", "--dither", choices=["ordered", "error", "none"], default="ordered",
                         help="Dithering mode: ordered (default, clean), error (Floyd-Steinberg, smooth gradients), none")
 
-    parser.add_argument("-w", "--wait", type=float, default=5, help="Wait time in seconds for single image mode or slideshow (default: 5)")
-    parser.add_argument("-s", "--slideshow", action="store_true", help="Enable slideshow mode (auto-advance images, honors --wait)")
+    parser.add_argument("-s", "--slideshow", dest="delay", nargs="?", const=5, type=int, help="Enable slideshow mode with optional integer delay in seconds (default: 5).")
     parser.add_argument("-k", "--seek", type=str, default="0:0:10", help="Seek position (in HH:MM:SS or seconds) to extract frame from videos (default: 10)")
     parser.add_argument("-f", "--format", type=str, choices=["jpeg", "png"], default="jpeg", help="Format for extracted video frames: jpeg (default) or png")
     args = parser.parse_args()
+
+    if args.delay is not None:
+        slideshow = True
+        slideshow_delay = args.delay
+    else:
+        slideshow = False
+        slideshow_delay = 5
 
     if args.path == '-':
         # Read image from stdin
@@ -375,7 +381,7 @@ def main():
             os.dup2(tty_fd, 0)
             os.close(tty_fd)
             try:
-                curses.wrapper(lambda *a, **kw: render(*a, **kw, single_image_mode=True, wait_time=args.wait, slideshow=args.slideshow), image_files, idx, not args.no_sharpen, args.dither, not args.no_color)
+                curses.wrapper(lambda *a, **kw: render(*a, **kw, single_image_mode=True, wait_time=slideshow_delay, slideshow=slideshow), image_files, idx, not args.no_sharpen, args.dither, not args.no_color)
             finally:
                 os.dup2(orig_stdin_fd, 0)
                 os.close(orig_stdin_fd)
@@ -450,7 +456,7 @@ def main():
             elif key in (ord('q'), 27):
                 break
 
-    curses.wrapper(render_with_video_support, image_files, idx, not args.no_sharpen, args.dither, not args.no_color, wait_time=args.wait, slideshow=args.slideshow)
+    curses.wrapper(render_with_video_support, image_files, idx, not args.no_sharpen, args.dither, not args.no_color, wait_time=slideshow_delay, slideshow=slideshow)
 
 
 if __name__ == "__main__":
