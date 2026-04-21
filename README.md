@@ -1,6 +1,6 @@
-# askiviu
+# dot
 
-Render images (including animated GIFs) as Braille dot art in the terminal with xterm-256 color and ncurses dim/normal/bold attributes.
+Render images and video previews as Braille dot art in the terminal with xterm-256 color and ncurses dim/normal/bold attributes.
 
 ## Features
 - Braille art rendering for images
@@ -19,25 +19,38 @@ Render images (including animated GIFs) as Braille dot art in the terminal with 
 <img width="1301" height="954" alt="image_03" src="https://github.com/user-attachments/assets/609805be-c0c5-4815-bb33-3bc70d69c152" />
 
 ## Usage
+
 ```sh
-python -m askiviu <image-or-directory>
+python -m dot <image-or-directory>
 ```
 
 - To render a single image:
-	```sh
-	python -m askiviu path/to/image.jpg
-	```
+    ```sh
+    python -m dot path/to/image.jpg
+    ```
 - To render all images and videos in a directory:
-	```sh
-	python -m askiviu path/to/directory/
-	```
+    ```sh
+    python -m dot path/to/directory/
+    ```
 
-## Navigation Keys
+## Keyboard Navigation
 
-- `Right Arrow`, `l`, `Space`: Next image
-- `Left Arrow`, `h`: Previous image
-- `Up Arrow`: First image
-- `Down Arrow`: Last image
+| Key         | Symbol | Action         |
+|-------------|--------|----------------|
+| Right Arrow | →      | Next image     |
+| l           | l      | Next image     |
+| Space       | ␣      | Next image     |
+| Left Arrow  | ←      | Previous image |
+| h           | h      | Previous image |
+| Up Arrow    | ↑      | First image    |
+| Down Arrow  | ↓      | Last image     |
+
+## Dependencies
+
+| Package  | Reason                                      |
+|----------|---------------------------------------------|
+| numpy    | Fast array operations for image processing   |
+| Pillow   | Image loading and manipulation               |
 - `q`, `Esc`: Quit
 
 ## Arguments

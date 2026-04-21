@@ -1,1 +1,0 @@
-from .askiviu import main

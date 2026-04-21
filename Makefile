@@ -1,4 +1,4 @@
-# Makefile for askiviu
+# Makefile for dot
 
 .PHONY: install clean
 
