@@ -433,9 +433,10 @@ def main():
         # Pass seek/format to render via function attributes
         render._seek = args.seek
         render._format = args.format
+        slideshow_active = slideshow
         while True:
             try:
-                key = render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=wait_time, slideshow=slideshow)
+                key = render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=wait_time, slideshow=slideshow_active)
             except Exception as e:
                 stdscr.clear()
                 stdscr.addstr(0, 0, f"Error: {e}")
@@ -443,6 +444,9 @@ def main():
                 stdscr.getch()
                 return
             # Navigation
+            if slideshow_active and key not in ('slideshow_next', -1):
+                # Any key disables slideshow
+                slideshow_active = False
             if key == 'slideshow_next':
                 idx = (idx + 1) % n
             elif key in (curses.KEY_RIGHT, ord('l'), ord(' ')):
