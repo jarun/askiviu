@@ -87,8 +87,6 @@ def linear_to_srgb(c):
     return np.where(c <= 0.0031308, c * 12.92, 1.055 * np.power(np.clip(c, 0, None), 1.0 / 2.4) - 0.055)
 
 
-
-
 def _load_image(image_path, img_w, img_h, sharpen, color):
     """Load and prepare image data. Accepts a file path or PIL Image. Returns (frames, color_maps, oy, ox, fit_h, fit_w, durations)."""
     if isinstance(image_path, Image.Image):
@@ -163,7 +161,6 @@ def extract_video_frame(path, frametime, extractformat):
     return img
 
 
-
 def get_image_files(directory, include_videos=False):
     from pathlib import Path
     exts = ["png", "jpg", "jpeg", "bmp", "gif", "tiff", "webp"]
@@ -221,7 +218,6 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         ext = os.path.splitext(image_path)[1].lower() if isinstance(image_path, str) else ''
         if ext in video_exts:
             try:
-                # Use global args if available, else defaults
                 seek = getattr(render, '_seek', '0:0:10')
                 fmt = getattr(render, '_format', 'jpeg')
                 img = extract_video_frame(image_path, seek, fmt)
@@ -258,7 +254,6 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         ATTR_BOUNDS = (0.30, 0.62)
         cell_rows = rows
         cell_cols = cols
-        # Apply Floyd-Steinberg dithering if requested
         if dither_mode == "error":
             dithered = floyd_steinberg_dither(perceptual[:cell_rows*4, :cell_cols*2].copy())
             blocks = dithered.reshape(cell_rows, 4, cell_cols, 2)
@@ -293,7 +288,6 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                     stdscr.addstr(cy, cx, chr(code), attr)
                 except curses.error:
                     pass
-        # Show filename at the bottom
         try:
             if display_name:
                 shown_name = os.path.basename(display_name)
@@ -319,27 +313,29 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
             frame_idx = (frame_idx + 1) % len(frames)
         else:
             if slideshow:
-                # Slideshow mode: auto-advance after wait_time seconds
                 start_time = time.time()
                 while True:
                     key = stdscr.getch()
+                    if key == ord('s'):
+                        return 'toggle_slideshow'
                     if key != -1:
                         stdscr.nodelay(False)
                         return key
                     if (time.time() - start_time) >= wait_time:
-                        # Return a special value to indicate auto-advance
                         return 'slideshow_next'
                     time.sleep(0.01)
             else:
-                # For non-animated images, just wait for key press once
                 while True:
                     key = stdscr.getch()
+                    if key == ord('s'):
+                        return 'toggle_slideshow'
                     if key != -1:
                         stdscr.nodelay(False)
                         return key
                     time.sleep(0.01)
                 break
     return key
+
 
 def main():
 
@@ -444,8 +440,11 @@ def main():
                 stdscr.getch()
                 return
             # Navigation
-            if slideshow_active and key not in ('slideshow_next', -1):
-                # Any key disables slideshow
+            if key == 'toggle_slideshow':
+                slideshow_active = not slideshow_active
+                continue
+            if slideshow_active and key not in ('slideshow_next', -1, 'toggle_slideshow'):
+                # Any other key disables slideshow
                 slideshow_active = False
             if key == 'slideshow_next':
                 idx = (idx + 1) % n

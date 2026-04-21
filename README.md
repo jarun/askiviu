@@ -45,6 +45,7 @@ python -m dot <file-or-directory>
 | Left, h         | Previous |
 | Up              | First    |
 | Down            | Last     |
+| s               | Toggle slideshow |
 | q, Esc          | Quit     |
 
 ## Dependencies
