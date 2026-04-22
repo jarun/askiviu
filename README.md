@@ -63,7 +63,7 @@ python -m dot <file-or-directory>
 -C, --no-color          : Disable color (greyscale only; default: color enabled)
 -d, --dither            : Dithering mode (`ordered`, `error`, `none`) (default: `ordered`)
 -s, --slideshow [delay] : Enable slideshow mode with optional integer delay in seconds (default: 5)
--k, --seek              : Seek position (in HH:MM:SS or seconds) to extract frame from videos (default: 10)
+-k, --seek              : Seek position to extract frame from videos in seconds (default: 10)
 -f, --format            : Format for extracted video frames (`jpeg`, `png`) (default: `jpeg`)
 ```
 

@@ -146,7 +146,7 @@ def extract_video_frame(path, frametime, extractformat):
     vcodec = 'mjpeg' if extractformat == 'jpeg' else 'png'
     ffmpeg_cmd = [
         'ffmpeg', '-y', '-nostdin', '-hide_banner', '-loglevel', 'error',
-        '-skip_frame', 'nokey', '-ss', str(frametime), '-i', path,
+        '-skip_frame', 'nokey', '-ss', str(int(frametime)), '-i', path,
         '-an', '-threads', '1', '-vsync', '0',
         '-vframes', '1',
         '-f', 'image2pipe',
@@ -218,7 +218,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         ext = os.path.splitext(image_path)[1].lower() if isinstance(image_path, str) else ''
         if ext in video_exts:
             try:
-                seek = getattr(render, '_seek', '0:0:10')
+                seek = getattr(render, '_seek', 10)
                 fmt = getattr(render, '_format', 'jpeg')
                 img = extract_video_frame(image_path, seek, fmt)
                 display_name = image_path
@@ -347,7 +347,7 @@ def main():
                         help="Dithering mode: ordered (default, clean), error (Floyd-Steinberg, smooth gradients), none")
 
     parser.add_argument("-s", "--slideshow", dest="delay", nargs="?", const=5, type=int, help="Enable slideshow mode with optional integer delay in seconds (default: 5).")
-    parser.add_argument("-k", "--seek", type=str, default="0:0:10", help="Seek position (in HH:MM:SS or seconds) to extract frame from videos (default: 10)")
+    parser.add_argument("-k", "--seek", type=int, default=10, help="Seek position to extract frame from videos in seconds (default: 10)")
     parser.add_argument("-f", "--format", type=str, choices=["jpeg", "png"], default="jpeg", help="Format for extracted video frames: jpeg (default) or png")
     args = parser.parse_args()
 
