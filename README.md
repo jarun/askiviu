@@ -18,6 +18,25 @@ Render images and video previews as Braille dot art in the terminal with xterm-2
 <br><br>
 <img width="1301" height="954" alt="image_03" src="https://github.com/user-attachments/assets/609805be-c0c5-4815-bb33-3bc70d69c152" />
 
+
+## Installation
+
+Install the required dependencies and the dot command:
+
+```sh
+# Install system dependencies (e.g., ffmpeg)
+sudo apt-get install ffmpeg  # or use your OS package manager
+
+# Install Python dependencies and the CLI tool
+sudo pip3 install .
+```
+
+After installation, you can run the tool using:
+
+```sh
+dot [options] <file-or-directory>
+```
+
 ## Usage
 
 ```sh
