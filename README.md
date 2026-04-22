@@ -39,10 +39,33 @@ dot [options] <file-or-directory>
 
 ## Usage
 
-```sh
-python -m dot <file-or-directory>
+```
+usage: dot [-h] [-S] [-C] [-d {ordered,error,none}] [-s [DELAY]] [-k SEEK] [-f {jpeg,png}] [path]
+
+Render an image or all images/videos in a directory as Braille dots using ncurses with optional xterm-256 color.
+
+positional arguments:
+  path                  Path to the image/video file or directory (optional)
+
+options:
+  -h, --help            show this help message and exit
+  -S, --no-sharpen      Disable edge sharpening
+  -C, --no-color        Disable color (greyscale only with dim/normal/bold)
+  -d {ordered,error,none}, --dither {ordered,error,none}
+                        Dithering mode: ordered (default, clean), error (Floyd-Steinberg, smooth gradients), none
+  -s [DELAY], --slideshow [DELAY]
+                        Enable slideshow mode with optional integer delay in seconds (default: 5).
+  -k SEEK, --seek SEEK  Seek position to extract frame from videos in seconds (default: 10)
+  -f {jpeg,png}, --format {jpeg,png}
+                        Format for extracted video frames: jpeg (default) or png
 ```
 
+#### Examples
+
+- Syntax:
+    ```sh
+    python -m dot <file-or-directory>
+    ```
 - To render a single image:
     ```sh
     python -m dot path/to/image.jpg
@@ -75,17 +98,6 @@ python -m dot <file-or-directory>
 | numpy     | >=1.20     | Fast array operations for image processing |
 | Pillow    | >=8.0      | Image loading and manipulation             |
 | ffmpeg    | >=4.2      | Video frame extraction                     |
-
-## Arguments
-
-```
--S, --no-sharpen        : Disable edge sharpening (default: sharpen enabled)
--C, --no-color          : Disable color (greyscale only; default: color enabled)
--d, --dither            : Dithering mode (`ordered`, `error`, `none`) (default: `ordered`)
--s, --slideshow [delay] : Enable slideshow mode with optional integer delay in seconds (default: 5)
--k, --seek              : Seek position to extract frame from videos in seconds (default: 10)
--f, --format            : Format for extracted video frames (`jpeg`, `png`) (default: `jpeg`)
-```
 
 ## Formats
 
