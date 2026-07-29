@@ -6,7 +6,6 @@ import argparse
 import curses
 import sys
 import os
-import glob
 
 import numpy as np
 from PIL import Image, ImageFilter
@@ -24,6 +23,7 @@ BRAILLE_MAP = (
     (0x04, 0x20),  # row 2
     (0x40, 0x80),  # row 3
 )
+VIDEO_EXTS = frozenset({".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".mpeg", ".mpg"})
 
 # Ordered dither matrix for the 4×2 braille grid.
 BAYER_4x2 = np.array([
@@ -95,10 +95,7 @@ def linear_to_srgb(c):
 
 def _load_image(image_path, img_w, img_h, sharpen, color):
     """Load and prepare image data. Accepts a file path or PIL Image. Returns (frames, color_maps, oy, ox, fit_h, fit_w, durations)."""
-    if isinstance(image_path, Image.Image):
-        img = image_path
-    else:
-        img = Image.open(image_path)
+    img = image_path if isinstance(image_path, Image.Image) else Image.open(image_path)
     is_animated = getattr(img, "is_animated", False)
     n_frames = getattr(img, "n_frames", 1)
     frames = []
@@ -108,10 +105,8 @@ def _load_image(image_path, img_w, img_h, sharpen, color):
         if is_animated:
             img.seek(frame_idx)
             durations.append(img.info.get("duration", 100))
-        if color:
-            img_rgb = img.convert("RGB"); img_grey = img_rgb.convert("L")
-        else:
-            img_rgb = None; img_grey = img.convert("L")
+        img_rgb = img.convert("RGB") if color else None
+        img_grey = img_rgb.convert("L") if color else img.convert("L")
         cell_cols, cell_rows = img_w // 2, img_h // 4
         img_aspect = img_grey.width / img_grey.height
         max_w, max_h = cell_cols * 2, cell_rows * 4
@@ -147,6 +142,10 @@ def _load_image(image_path, img_w, img_h, sharpen, color):
 
 
 # Helper to extract a video frame using ffmpeg and return a PIL Image
+def _is_video_path(path):
+    return os.path.splitext(str(path))[1].lower() in VIDEO_EXTS
+
+
 def extract_video_frame(path, frametime, extractformat):
     import subprocess, io
     vcodec = 'mjpeg' if extractformat == 'jpeg' else 'png'
@@ -169,18 +168,33 @@ def extract_video_frame(path, frametime, extractformat):
 
 def get_image_files(directory, include_videos=False):
     from pathlib import Path
-    exts = ["png", "jpg", "jpeg", "bmp", "gif", "tiff", "webp"]
+    exts = {"png", "jpg", "jpeg", "bmp", "gif", "tiff", "webp"}
     if include_videos:
-        exts += ["mp4", "mkv", "avi", "mov", "webm", "flv", "wmv", "mpeg", "mpg"]
+        exts.update(ext.lstrip(".") for ext in VIDEO_EXTS)
     p = Path(directory)
     files = []
     for f in p.iterdir():
-        if f.is_file():
-            suffix = f.suffix.lower().lstrip('.')
-            if suffix in exts:
-                files.append(str(f.resolve()))
+        suffix = f.suffix.lower().lstrip(".")
+        if f.is_file() and suffix in exts:
+            files.append(str(f.resolve()))
     files.sort()
     return files
+
+
+def _display_name(image_path, display_name):
+    return os.path.basename(display_name or image_path or "[video frame]") if display_name or isinstance(image_path, (str, bytes, os.PathLike)) else "[video frame]"
+
+
+def _update_slideshow_state(slideshow_active, slideshow_reverse, key):
+    if key == 'toggle_slideshow':
+        if slideshow_active and slideshow_reverse:
+            return True, False
+        if slideshow_active:
+            return False, False
+        return True, False
+    if key == 'toggle_slideshow_reverse':
+        return True, True
+    return slideshow_active, slideshow_reverse
 
 
 def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False):
@@ -220,9 +234,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
     try:
         image_path = image_files[idx]
         display_name = None
-        video_exts = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.mpeg', '.mpg']
-        ext = os.path.splitext(image_path)[1].lower() if isinstance(image_path, str) else ''
-        if ext in video_exts:
+        if _is_video_path(image_path):
             try:
                 seek = getattr(render, '_seek', 10)
                 fmt = getattr(render, '_format', 'jpeg')
@@ -244,7 +256,6 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         is_animated = len(frames) > 1
         frame_idx = 0
         key = -1
-        last_time = time.time()
         stdscr.nodelay(True)
     except Exception as e:
         stdscr.clear()
@@ -295,12 +306,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                 except curses.error:
                     pass
         try:
-            if display_name:
-                shown_name = os.path.basename(display_name)
-            elif isinstance(image_path, (str, bytes, os.PathLike)):
-                shown_name = os.path.basename(image_path)
-            else:
-                shown_name = '[video frame]'
+            shown_name = _display_name(image_path, display_name)
             stdscr.addstr(rows, 0, f"[{idx+1}/{n}] {shown_name}", curses.A_REVERSE)
         except curses.error:
             pass
@@ -318,32 +324,19 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                 time.sleep(0.01)
             frame_idx = (frame_idx + 1) % len(frames)
         else:
-            if slideshow:
-                start_time = time.time()
-                while True:
-                    key = stdscr.getch()
-                    if key == ord('s'):
-                        return 'toggle_slideshow'
-                    if key == ord('S'):
-                        return 'toggle_slideshow_reverse'
-                    if key != -1:
-                        stdscr.nodelay(False)
-                        return key
-                    if (time.time() - start_time) >= wait_time:
-                        return 'slideshow_next'
-                    time.sleep(0.01)
-            else:
-                while True:
-                    key = stdscr.getch()
-                    if key == ord('s'):
-                        return 'toggle_slideshow'
-                    if key == ord('S'):
-                        return 'toggle_slideshow_reverse'
-                    if key != -1:
-                        stdscr.nodelay(False)
-                        return key
-                    time.sleep(0.01)
-                break
+            start_time = time.time() if slideshow else None
+            while True:
+                key = stdscr.getch()
+                if key == ord('s'):
+                    return 'toggle_slideshow'
+                if key == ord('S'):
+                    return 'toggle_slideshow_reverse'
+                if key != -1:
+                    stdscr.nodelay(False)
+                    return key
+                if slideshow and start_time is not None and (time.time() - start_time) >= wait_time:
+                    return 'slideshow_next'
+                time.sleep(0.01)
     return key
 
 
@@ -378,12 +371,8 @@ def main():
     parser.add_argument("-v", "--version", action="version", version=_VERSION_)
     args = parser.parse_args()
 
-    if args.delay is not None:
-        slideshow = True
-        slideshow_delay = args.delay
-    else:
-        slideshow = False
-        slideshow_delay = 5
+    slideshow = args.delay is not None
+    slideshow_delay = args.delay if slideshow else 5
 
     if args.path == '-':
         # Read image from stdin
@@ -421,11 +410,10 @@ def main():
                 sys.exit(1)
             idx = 0
         else:
-            video_exts = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.mpeg', '.mpg']
             abs_path = os.path.abspath(args.path)
             directory = os.path.dirname(abs_path) or os.getcwd()
             # Always include videos if the selected file is a video
-            include_videos = os.path.splitext(abs_path)[1].lower() in video_exts or args.seek is not None
+            include_videos = _is_video_path(abs_path) or args.seek is not None
             image_files = get_image_files(directory, include_videos=include_videos)
             if not image_files:
                 print(f"No images or videos found in directory: {directory}", file=sys.stderr)
@@ -446,9 +434,6 @@ def main():
         idx = 0
 
 
-    # Always pass the video_exts and frametime to render for dynamic extraction
-    video_exts = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.mpeg', '.mpg']
-
     # Pass seek and format to render via function attributes for video frame extraction
     def render_with_video_support(stdscr, image_files, start_idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False):
         idx = start_idx
@@ -468,23 +453,8 @@ def main():
                 stdscr.getch()
                 return
             # Navigation
-            if key == 'toggle_slideshow':
-                if slideshow_active and slideshow_reverse:
-                    # While running in reverse mode, `s` switches back to forward.
-                    slideshow_reverse = False
-                else:
-                    slideshow_active = not slideshow_active
-                    if slideshow_active:
-                        slideshow_reverse = False
-                continue
-            if key == 'toggle_slideshow_reverse':
-                if slideshow_active and not slideshow_reverse:
-                    # While running in forward mode, `S` switches to reverse.
-                    slideshow_reverse = True
-                else:
-                    slideshow_active = not slideshow_active
-                    if slideshow_active:
-                        slideshow_reverse = True
+            slideshow_active, slideshow_reverse = _update_slideshow_state(slideshow_active, slideshow_reverse, key)
+            if key in ('toggle_slideshow', 'toggle_slideshow_reverse'):
                 continue
             if slideshow_active and key not in ('slideshow_next', -1, 'toggle_slideshow', 'toggle_slideshow_reverse'):
                 # Any other key disables slideshow
