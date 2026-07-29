@@ -23,7 +23,13 @@ It was written to be used as a terminal image viewer with [`nnn`](https://github
 
 ## Installation
 
-Install the required dependencies and the dotz command:
+Install from PyPI:
+
+```sh
+pip install dotz
+```
+
+Or install from the source repository:
 
 ```sh
 # Install system dependencies (e.g., ffmpeg)
