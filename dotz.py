@@ -24,6 +24,8 @@ BRAILLE_MAP = (
     (0x40, 0x80),  # row 3
 )
 VIDEO_EXTS = frozenset({".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".mpeg", ".mpg"})
+IMAGE_EXTS = frozenset({"png", "jpg", "jpeg", "bmp", "gif", "tiff", "webp"})
+VIDEO_EXTS_NO_DOT = frozenset(ext.lstrip(".") for ext in VIDEO_EXTS)
 
 # Ordered dither matrix for the 4×2 braille grid.
 BAYER_4x2 = np.array([
@@ -32,6 +34,7 @@ BAYER_4x2 = np.array([
     [5, 1],
     [7, 3],
 ], dtype=np.float64)
+ORDERED_THRESHOLDS = (BAYER_4x2 + 0.5) / 8.0
 
 # ── xterm-256 color cube helpers ──────────────────────────────────────────────
 # Colors 16-231 form a 6×6×6 RGB cube. Values per axis: 0,95,135,175,215,255.
@@ -98,6 +101,8 @@ def _load_image(image_path, img_w, img_h, sharpen, color):
     img = image_path if isinstance(image_path, Image.Image) else Image.open(image_path)
     is_animated = getattr(img, "is_animated", False)
     n_frames = getattr(img, "n_frames", 1)
+    cell_cols, cell_rows = img_w // 2, img_h // 4
+    max_w, max_h = cell_cols * 2, cell_rows * 4
     frames = []
     color_maps = []
     durations = []
@@ -107,22 +112,18 @@ def _load_image(image_path, img_w, img_h, sharpen, color):
             durations.append(img.info.get("duration", 100))
         img_rgb = img.convert("RGB") if color else None
         img_grey = img_rgb.convert("L") if color else img.convert("L")
-        cell_cols, cell_rows = img_w // 2, img_h // 4
         img_aspect = img_grey.width / img_grey.height
-        max_w, max_h = cell_cols * 2, cell_rows * 4
         fit_w, fit_h = (max_w, int(round(max_w / img_aspect))) if (max_w / img_aspect) <= max_h else (int(round(max_h * img_aspect)), max_h)
         fit_w, fit_h = min(fit_w, max_w), min(fit_h, max_h)
         img_grey_r = img_grey.resize((fit_w, fit_h), Image.LANCZOS)
         if sharpen: img_grey_r = img_grey_r.filter(ImageFilter.UnsharpMask(radius=1.2, percent=100, threshold=2))
         oy, ox = (img_h - fit_h) // 2, (img_w - fit_w) // 2
-        raw = np.asarray(img_grey_r, dtype=np.float64)
-        np.multiply(raw, 1.0/255.0, out=raw)  # in-place normalization
+        raw = np.asarray(img_grey_r, dtype=np.float64) / 255.0
         linear = srgb_to_linear(raw)
         canvas = np.zeros((img_h, img_w), dtype=np.float64)
         canvas[oy:oy + fit_h, ox:ox + fit_w] = linear
         perceptual = linear_to_srgb(canvas)
         frames.append(perceptual)
-        color_map = None
         if color and img_rgb is not None:
             img_rgb_r = img_rgb.resize((fit_w, fit_h), Image.LANCZOS)
             rgb_arr = np.asarray(img_rgb_r, dtype=np.float64)
@@ -136,6 +137,8 @@ def _load_image(image_path, img_w, img_h, sharpen, color):
             dists = np.sum(diffs, axis=2)
             color_indices = np.argmin(dists, axis=1) + 16
             color_map = color_indices.reshape(cell_rows, cell_cols).astype(np.int32)
+        else:
+            color_map = None
         color_maps.append(color_map)
         if not is_animated: break
     return frames, color_maps, oy, ox, fit_h, fit_w, durations
@@ -167,16 +170,15 @@ def extract_video_frame(path, frametime, extractformat):
 
 
 def get_image_files(directory, include_videos=False):
-    from pathlib import Path
-    exts = {"png", "jpg", "jpeg", "bmp", "gif", "tiff", "webp"}
-    if include_videos:
-        exts.update(ext.lstrip(".") for ext in VIDEO_EXTS)
-    p = Path(directory)
+    exts = IMAGE_EXTS | VIDEO_EXTS_NO_DOT if include_videos else IMAGE_EXTS
     files = []
-    for f in p.iterdir():
-        suffix = f.suffix.lower().lstrip(".")
-        if f.is_file() and suffix in exts:
-            files.append(str(f.resolve()))
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if not entry.is_file():
+                continue
+            _, ext = os.path.splitext(entry.name)
+            if ext.lower().lstrip(".") in exts:
+                files.append(os.path.realpath(entry.path))
     files.sort()
     return files
 
@@ -195,6 +197,60 @@ def _update_slideshow_state(slideshow_active, slideshow_reverse, key):
     if key == 'toggle_slideshow_reverse':
         return True, True
     return slideshow_active, slideshow_reverse
+
+
+def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, use_error_dither, use_ordered_dither):
+    ATTR_BOUNDS = (0.30, 0.62)
+    half_threshold = 0.5
+    color_pair = curses.color_pair
+    for cy in range(rows):
+        segments = []
+        current_attr = None
+        current_chars = []
+        start_x = 0
+        for cx in range(cols):
+            avg = block_means[cy, cx]
+            if avg < ATTR_BOUNDS[0]:
+                attr = curses.A_DIM
+            elif avg < ATTR_BOUNDS[1]:
+                attr = curses.A_NORMAL
+            else:
+                attr = curses.A_BOLD
+            code = BRAILLE_BASE
+            block = blocks[cy, :, cx, :]
+            if use_error_dither:
+                for dr in range(4):
+                    for dc in range(2):
+                        if block[dr, dc] > half_threshold:
+                            code |= BRAILLE_MAP[dr][dc]
+            elif use_ordered_dither:
+                for dr in range(4):
+                    for dc in range(2):
+                        if block[dr, dc] > thresholds[dr, dc]:
+                            code |= BRAILLE_MAP[dr][dc]
+            else:
+                for dr in range(4):
+                    for dc in range(2):
+                        if block[dr, dc] > half_threshold:
+                            code |= BRAILLE_MAP[dr][dc]
+            if color and color_map is not None:
+                attr |= color_pair(color_map[cy, cx] - 16 + 1)
+            ch = chr(code)
+            if current_attr is None or current_attr != attr:
+                if current_chars:
+                    segments.append((start_x, current_attr, "".join(current_chars)))
+                start_x = cx
+                current_attr = attr
+                current_chars = [ch]
+            else:
+                current_chars.append(ch)
+        if current_chars:
+            segments.append((start_x, current_attr, "".join(current_chars)))
+        for x, attr, text in segments:
+            try:
+                stdscr.addstr(cy, x, text, attr)
+            except curses.error:
+                pass
 
 
 def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False):
@@ -263,50 +319,23 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         stdscr.refresh()
         stdscr.getch()
         return -1
+    shown_name = _display_name(image_path, display_name)
+    thresholds = ORDERED_THRESHOLDS
+    use_error_dither = dither_mode == "error"
+    use_ordered_dither = dither_mode == "ordered"
     while True:
         stdscr.clear()
         perceptual = frames[frame_idx]
         color_map = color_maps[frame_idx] if color_maps else None
-        thresholds = (BAYER_4x2 + 0.5) / 8.0
-        ATTR_BOUNDS = (0.30, 0.62)
-        cell_rows = rows
-        cell_cols = cols
-        if dither_mode == "error":
-            dithered = floyd_steinberg_dither(perceptual[:cell_rows*4, :cell_cols*2].copy())
-            blocks = dithered.reshape(cell_rows, 4, cell_cols, 2)
+        frame_view = perceptual[:rows * 4, :cols * 2]
+        if use_error_dither:
+            dithered = floyd_steinberg_dither(frame_view.copy())
+            blocks = dithered.reshape(rows, 4, cols, 2)
         else:
-            blocks = perceptual[:cell_rows*4, :cell_cols*2].reshape(cell_rows, 4, cell_cols, 2)
-        block_means = blocks.mean(axis=(1,3))
-        use_dither = dither_mode == "ordered"
-        for cy in range(rows):
-            for cx in range(cols):
-                avg = block_means[cy, cx]
-                if avg < ATTR_BOUNDS[0]:
-                    attr = curses.A_DIM
-                elif avg < ATTR_BOUNDS[1]:
-                    attr = curses.A_NORMAL
-                else:
-                    attr = curses.A_BOLD
-                code = BRAILLE_BASE
-                block = blocks[cy, :, cx, :]
-                for dr in range(4):
-                    for dc in range(2):
-                        t = thresholds[dr, dc] if use_dither else 0.5
-                        if dither_mode == "error":
-                            if block[dr, dc] > 0.5:
-                                code |= BRAILLE_MAP[dr][dc]
-                        else:
-                            if block[dr, dc] > t:
-                                code |= BRAILLE_MAP[dr][dc]
-                if color and color_map is not None:
-                    pair = color_map[cy, cx] - 16 + 1
-                    attr |= curses.color_pair(pair)
-                try:
-                    stdscr.addstr(cy, cx, chr(code), attr)
-                except curses.error:
-                    pass
+            blocks = frame_view.reshape(rows, 4, cols, 2)
+        block_means = blocks.mean(axis=(1, 3))
+        _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, use_error_dither, use_ordered_dither)
         try:
-            shown_name = _display_name(image_path, display_name)
             stdscr.addstr(rows, 0, f"[{idx+1}/{n}] {shown_name}", curses.A_REVERSE)
         except curses.error:
             pass
