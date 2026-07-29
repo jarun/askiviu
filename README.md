@@ -90,6 +90,7 @@ options:
 | Up              | First    |
 | Down            | Last     |
 | s               | Toggle slideshow |
+| S               | Toggle reverse slideshow |
 | q, Esc          | Quit     |
 
 ## Dependencies

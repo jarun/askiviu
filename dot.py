@@ -318,6 +318,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                     key = stdscr.getch()
                     if key == ord('s'):
                         return 'toggle_slideshow'
+                    if key == ord('S'):
+                        return 'toggle_slideshow_reverse'
                     if key != -1:
                         stdscr.nodelay(False)
                         return key
@@ -329,6 +331,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                     key = stdscr.getch()
                     if key == ord('s'):
                         return 'toggle_slideshow'
+                    if key == ord('S'):
+                        return 'toggle_slideshow_reverse'
                     if key != -1:
                         stdscr.nodelay(False)
                         return key
@@ -430,6 +434,7 @@ def main():
         render._seek = args.seek
         render._format = args.format
         slideshow_active = slideshow
+        slideshow_reverse = False
         while True:
             try:
                 key = render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=wait_time, slideshow=slideshow_active)
@@ -441,13 +446,32 @@ def main():
                 return
             # Navigation
             if key == 'toggle_slideshow':
-                slideshow_active = not slideshow_active
+                if slideshow_active and slideshow_reverse:
+                    # While running in reverse mode, `s` switches back to forward.
+                    slideshow_reverse = False
+                else:
+                    slideshow_active = not slideshow_active
+                    if slideshow_active:
+                        slideshow_reverse = False
                 continue
-            if slideshow_active and key not in ('slideshow_next', -1, 'toggle_slideshow'):
+            if key == 'toggle_slideshow_reverse':
+                if slideshow_active and not slideshow_reverse:
+                    # While running in forward mode, `S` switches to reverse.
+                    slideshow_reverse = True
+                else:
+                    slideshow_active = not slideshow_active
+                    if slideshow_active:
+                        slideshow_reverse = True
+                continue
+            if slideshow_active and key not in ('slideshow_next', -1, 'toggle_slideshow', 'toggle_slideshow_reverse'):
                 # Any other key disables slideshow
                 slideshow_active = False
+                slideshow_reverse = False
             if key == 'slideshow_next':
-                idx = (idx + 1) % n
+                if slideshow_reverse:
+                    idx = (idx - 1) % n
+                else:
+                    idx = (idx + 1) % n
             elif key in (curses.KEY_RIGHT, ord('l'), ord(' ')):
                 idx = (idx + 1) % n
             elif key in (curses.KEY_LEFT, ord('h')):
