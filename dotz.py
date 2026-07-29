@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render images as Braille dot art with xterm-256 color and ncurses dim/normal/bold."""
+"""Render images as Braille art with xterm-256 color and ncurses dim/normal/bold."""
 
 
 import argparse
@@ -11,6 +11,12 @@ import glob
 import numpy as np
 from PIL import Image, ImageFilter
 
+_VERSION_ = "0.1"
+_AUTHOR_ = "Arun Prakash Jana"
+_AUTHOR_EMAIL_ = "engineerarun@gmail.com"
+_LICENSE_ = "MIT"
+_WEBPAGE_ = "https://github.com/jarun/dotz"
+
 BRAILLE_BASE = 0x2800
 BRAILLE_MAP = (
     (0x01, 0x08),  # row 0
@@ -19,7 +25,7 @@ BRAILLE_MAP = (
     (0x40, 0x80),  # row 3
 )
 
-# Dispersed-dot ordered dither matrix for the 4×2 braille grid.
+# Ordered dither matrix for the 4×2 braille grid.
 BAYER_4x2 = np.array([
     [0, 4],
     [2, 6],
@@ -68,7 +74,7 @@ def _init_color_pairs():
 
 
 def _cell_to_global(local_brightness, attr, bounds):
-    """Map a cell's local dot brightness back to global perceptual brightness."""
+    """Map a cell's local brightness back to global perceptual brightness."""
     if attr == curses.A_DIM:
         return local_brightness * bounds[0]
     elif attr == curses.A_NORMAL:
@@ -342,8 +348,24 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
 
 
 def main():
+    class ExtendedArgumentParser(argparse.ArgumentParser):
+        @staticmethod
+        def print_extended_help(file=None):
+            if file is None:
+                file = sys.stderr
+            file.write(
+                "\n"
+                f"Version: {_VERSION_}\n"
+                f"Author: {_AUTHOR_} <{_AUTHOR_EMAIL_}>\n"
+                f"License: {_LICENSE_}\n"
+                f"Webpage: {_WEBPAGE_}\n"
+            )
 
-    parser = argparse.ArgumentParser(description="Render an image or all images/videos in a directory as Braille dots using ncurses with optional xterm-256 color.")
+        def print_help(self, file=None):
+            super().print_help(file)
+            self.print_extended_help(file)
+
+    parser = ExtendedArgumentParser(description="Render an image or all images/videos in a directory as Braille cells using ncurses with optional xterm-256 color.")
     parser.add_argument("path", nargs="?", help="Path to the image/video file or directory (optional)")
     parser.add_argument("-S", "--no-sharpen", action="store_true", help="Disable edge sharpening")
     parser.add_argument("-C", "--no-color", action="store_true", help="Disable color (greyscale only with dim/normal/bold)")
@@ -353,6 +375,7 @@ def main():
     parser.add_argument("-s", "--slideshow", dest="delay", nargs="?", const=5, type=int, help="Enable slideshow mode with optional integer delay in seconds (default: 5).")
     parser.add_argument("-k", "--seek", type=int, default=10, help="Seek position to extract frame from videos in seconds (default: 10)")
     parser.add_argument("-f", "--format", type=str, choices=["jpeg", "png"], default="jpeg", help="Format for extracted video frames: jpeg (default) or png")
+    parser.add_argument("-v", "--version", action="version", version=_VERSION_)
     args = parser.parse_args()
 
     if args.delay is not None:

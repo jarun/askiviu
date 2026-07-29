@@ -1,6 +1,6 @@
-# dot
+# dotz
 
-Render images and video previews as Braille dot art in the terminal with xterm-256 color and ncurses dim/normal/bold attributes.
+Render images and video previews as Braille art in the terminal with xterm-256 color and ncurses dim/normal/bold attributes.
 
 It was written to be used as a terminal image viewer with [`nnn`](https://github.com/jarun/nnn). Works independently too.
 
@@ -23,7 +23,7 @@ It was written to be used as a terminal image viewer with [`nnn`](https://github
 
 ## Installation
 
-Install the required dependencies and the dot command:
+Install the required dependencies and the dotz command:
 
 ```sh
 # Install system dependencies (e.g., ffmpeg)
@@ -36,15 +36,15 @@ sudo pip3 install .
 After installation, you can run the tool using:
 
 ```sh
-dot [options] <file-or-directory>
+dotz [options] <file-or-directory>
 ```
 
 ## Usage
 
 ```
-usage: dot [-h] [-S] [-C] [-d {ordered,error,none}] [-s [DELAY]] [-k SEEK] [-f {jpeg,png}] [path]
+usage: dotz [-h] [-S] [-C] [-d {ordered,error,none}] [-s [DELAY]] [-k SEEK] [-f {jpeg,png}] [path]
 
-Render an image or all images/videos in a directory as Braille dots using ncurses with optional xterm-256 color.
+Render an image or all images/videos in a directory as Braille cells using ncurses with optional xterm-256 color.
 
 positional arguments:
   path                  Path to the image/video file or directory (optional)
@@ -66,19 +66,19 @@ options:
 
 - Syntax:
     ```sh
-    python -m dot <file-or-directory>
+    python -m dotz <file-or-directory>
     ```
 - To render a single image:
     ```sh
-    python -m dot path/to/image.jpg
+    python -m dotz path/to/image.jpg
     ```
 - To render all images and videos in a directory:
     ```sh
-    python -m dot path/to/directory/
+    python -m dotz path/to/directory/
     ```
 - To run a slideshow with a custom delay (e.g. 3 seconds):
     ```sh
-    python -m dot -s 3 path/to/directory/
+    python -m dotz -s 3 path/to/directory/
     ```
 
 ## Navigation
