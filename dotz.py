@@ -201,6 +201,51 @@ def _clamp_delay(delay):
     return max(1, min(60, delay))
 
 
+def _zoom_array(array, zoom_factor, target_size, fill_value=0):
+    """Return a centered nearest-neighbor zoom of a two-dimensional array."""
+    if array is None:
+        return None
+
+    target_h, target_w = target_size
+    zoom_factor = float(zoom_factor or 1.0)
+    if zoom_factor <= 0:
+        zoom_factor = 1.0
+    if zoom_factor == 1.0 and array.shape == (target_h, target_w):
+        return array
+
+    source_h, source_w = array.shape
+    if zoom_factor > 1.0:
+        visible_h = source_h / zoom_factor
+        visible_w = source_w / zoom_factor
+        top = (source_h - visible_h) / 2
+        left = (source_w - visible_w) / 2
+        row_indices = np.minimum(
+            source_h - 1,
+            (top + (np.arange(target_h) + 0.5) * visible_h / target_h).astype(np.intp),
+        )
+        col_indices = np.minimum(
+            source_w - 1,
+            (left + (np.arange(target_w) + 0.5) * visible_w / target_w).astype(np.intp),
+        )
+        return array[row_indices[:, None], col_indices]
+
+    scaled_h = max(1, int(round(target_h * zoom_factor)))
+    scaled_w = max(1, int(round(target_w * zoom_factor)))
+    row_indices = np.minimum(
+        source_h - 1,
+        ((np.arange(scaled_h) + 0.5) * source_h / scaled_h).astype(np.intp),
+    )
+    col_indices = np.minimum(
+        source_w - 1,
+        ((np.arange(scaled_w) + 0.5) * source_w / scaled_w).astype(np.intp),
+    )
+    result = np.full((target_h, target_w), fill_value, dtype=array.dtype)
+    top = (target_h - scaled_h) // 2
+    left = (target_w - scaled_w) // 2
+    result[top:top + scaled_h, left:left + scaled_w] = array[row_indices[:, None], col_indices]
+    return result
+
+
 def _update_slideshow_state(slideshow_active, slideshow_reverse, key):
     if key == 'toggle_slideshow':
         if slideshow_active and slideshow_reverse:
@@ -247,7 +292,7 @@ def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, colo
                     for dc in range(2):
                         if block[dr, dc] > half_threshold:
                             code |= BRAILLE_MAP[dr][dc]
-            if color and color_map is not None:
+            if color and color_map is not None and color_map[cy, cx] >= 16:
                 attr |= color_pair(color_map[cy, cx] - 16 + 1)
             ch = chr(code)
             if current_attr is None or current_attr != attr:
@@ -267,7 +312,7 @@ def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, colo
                 pass
 
 
-def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, prepared=None):
+def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, prepared=None, zoom_factor=1.0):
     import time
     curses.curs_set(0)
     curses.use_default_colors()
@@ -295,7 +340,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                         arr[y+1, x+1] += err * 1/16
         return arr
 
-    stdscr.clear()
+    stdscr.erase()
     max_y, max_x = stdscr.getmaxyx()
     rows = max_y
     cols = max_x
@@ -326,10 +371,12 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
     use_error_dither = dither_mode == "error"
     use_ordered_dither = dither_mode == "ordered"
     while True:
-        stdscr.clear()
+        stdscr.erase()
         perceptual = frames[frame_idx]
         color_map = color_maps[frame_idx] if color_maps else None
         frame_view = perceptual[:rows * 4, :cols * 2]
+        frame_view = _zoom_array(frame_view, zoom_factor, target_size=(rows * 4, cols * 2))
+        color_map = _zoom_array(color_map, zoom_factor, target_size=(rows, cols))
         if use_error_dither:
             dithered = floyd_steinberg_dither(frame_view.copy())
             blocks = dithered.reshape(rows, 4, cols, 2)
@@ -349,6 +396,10 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                 key = stdscr.getch()
                 if key != -1:
                     stdscr.nodelay(False)
+                    if key == ord('+'):
+                        return 'zoom_in'
+                    if key == ord('-'):
+                        return 'zoom_out'
                     return key
                 if (time.time() - start_time) >= duration:
                     break
@@ -362,10 +413,14 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                     return 'toggle_slideshow'
                 if key == ord('S'):
                     return 'toggle_slideshow_reverse'
-                if key == ord('+'):
+                if key == ord('D'):
                     return 'increase_delay'
-                if key == ord('-'):
+                if key == ord('d'):
                     return 'decrease_delay'
+                if key == ord('+'):
+                    return 'zoom_in'
+                if key == ord('-'):
+                    return 'zoom_out'
                 if key != -1:
                     stdscr.nodelay(False)
                     return key
@@ -521,8 +576,15 @@ def main():
         slideshow_active = slideshow
         slideshow_reverse = False
         current_delay = wait_time
+        zoom_factor = 1.0
+        last_rendered_idx = idx
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             while True:
+                if idx != last_rendered_idx:
+                    stdscr.erase()
+                    zoom_factor = 1.0
+                    last_rendered_idx = idx
+
                 img_w, img_h = viewport_dims()
                 next_idx = (idx + 1) % n
                 prev_idx = (idx - 1) % n
@@ -544,6 +606,7 @@ def main():
                         wait_time=current_delay,
                         slideshow=slideshow_active,
                         prepared=prepared,
+                        zoom_factor=zoom_factor,
                     )
                 except Exception as e:
                     stdscr.clear()
@@ -552,6 +615,12 @@ def main():
                     stdscr.getch()
                     return
                 # Navigation
+                if key == 'zoom_in':
+                    zoom_factor = min(4.0, zoom_factor + 0.25)
+                    continue
+                if key == 'zoom_out':
+                    zoom_factor = max(0.25, zoom_factor - 0.25)
+                    continue
                 if key == 'increase_delay':
                     current_delay = _clamp_delay(current_delay + 1)
                     continue

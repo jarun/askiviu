@@ -11,6 +11,7 @@ It was written to be used as a terminal image viewer with [`nnn`](https://github
 - xterm-256 color and grayscale
 - Dithering options (ordered, error diffusion)
 - Video preview (frame extraction with ffmpeg)
+- Zoom in, zoom out
 - Keyboard navigation and slideshow mode
 
 <br>
@@ -46,6 +47,14 @@ dotz [options] <file-or-directory>
 ```
 
 ## Usage
+
+Run the local workspace copy directly with:
+
+```sh
+python3 dotz.py [options] <file-or-directory>
+```
+
+Or use the installed entry point after reinstalling from the repository:
 
 ```
 usage: dotz [-h] [-S] [-C] [-d {ordered,error,none}] [-s [DELAY]] [-k SEEK] [-f {jpeg,png}] [path]
@@ -95,9 +104,9 @@ options:
 | Left, p         | Previous |
 | Up              | First    |
 | Down            | Last     |
-| s               | Toggle slideshow |
-| S               | Toggle reverse slideshow |
-| +, -            | Increase/decrease slideshow delay by 1 sec |
+| s, S            | Toggle forward/reverse slideshow |
+| +, -            | Zoom in, zoom out |
+| d, D            | Decrease/increase slideshow delay by 1 sec |
 | q, Esc          | Quit     |
 
 ## Dependencies
