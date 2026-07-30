@@ -370,7 +370,7 @@ _HELP_LINES = (
     "  v              toggle 5 fps preview",
     "SLIDESHOW",
     "  s / S          forward / reverse",
-    "  d / D          delay down / up",
+    "  d / D          delay down / up by 1 sec",
     "INFO & QUIT",
     "  i metadata     ? help     q / Esc quit",
 )
