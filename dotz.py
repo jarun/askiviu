@@ -80,7 +80,19 @@ def linear_to_srgb(c):
     return np.where(c <= 0.0031308, c * 12.92, 1.055 * np.power(np.clip(c, 0, None), 1.0 / 2.4) - 0.055)
 
 
-def _load_image(image_path, img_w, img_h, sharpen, color):
+def _transform_image(image, rotation_quadrants=0, flip_horizontal=False):
+    """Return an oriented copy of a PIL image without modifying the source."""
+    rotation_quadrants = int(rotation_quadrants) % 4
+    transpose = getattr(Image, "Transpose", Image)
+    rotation_ops = (None, transpose.ROTATE_270, transpose.ROTATE_180, transpose.ROTATE_90)
+    if rotation_quadrants:
+        image = image.transpose(rotation_ops[rotation_quadrants])
+    if flip_horizontal:
+        image = image.transpose(transpose.FLIP_LEFT_RIGHT)
+    return image
+
+
+def _load_image(image_path, img_w, img_h, sharpen, color, rotation_quadrants=0, flip_horizontal=False):
     """Load and prepare image data. Accepts a file path or PIL Image. Returns (frames, color_maps, oy, ox, fit_h, fit_w, durations)."""
     img = image_path if isinstance(image_path, Image.Image) else Image.open(image_path)
     is_animated = getattr(img, "is_animated", False)
@@ -94,8 +106,9 @@ def _load_image(image_path, img_w, img_h, sharpen, color):
         if is_animated:
             img.seek(frame_idx)
             durations.append(img.info.get("duration", 100))
-        img_rgb = img.convert("RGB") if color else None
-        img_grey = img_rgb.convert("L") if color else img.convert("L")
+        frame = _transform_image(img, rotation_quadrants, flip_horizontal)
+        img_rgb = frame.convert("RGB") if color else None
+        img_grey = img_rgb.convert("L") if color else frame.convert("L")
         img_aspect = img_grey.width / img_grey.height
         fit_w, fit_h = (max_w, int(round(max_w / img_aspect))) if (max_w / img_aspect) <= max_h else (int(round(max_h * img_aspect)), max_h)
         fit_w, fit_h = min(fit_w, max_w), min(fit_h, max_h)
@@ -171,20 +184,20 @@ def _display_name(image_path, display_name):
     return os.path.basename(display_name or image_path or "[video frame]") if display_name or isinstance(image_path, (str, bytes, os.PathLike)) else "[video frame]"
 
 
-def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extractformat):
+def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extractformat, rotation_quadrants=0, flip_horizontal=False):
     """Prepare renderable frame buffers for one item. Safe to run in worker threads."""
     image_path = image_item
     display_name = None
     if _is_video_path(image_path):
         img = extract_video_frame(image_path, seek, extractformat)
         display_name = image_path
-        frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(img, img_w, img_h, sharpen, color)
+        frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(img, img_w, img_h, sharpen, color, rotation_quadrants, flip_horizontal)
     else:
         if isinstance(image_path, tuple) and len(image_path) == 2:
             image_path, display_name = image_path
         elif isinstance(image_path, Image.Image):
             display_name = '[video frame]'
-        frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(image_path, img_w, img_h, sharpen, color)
+        frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(image_path, img_w, img_h, sharpen, color, rotation_quadrants, flip_horizontal)
     return {
         "frames": frames,
         "color_maps": color_maps,
@@ -336,7 +349,7 @@ def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, colo
                 pass
 
 
-def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, slideshow_reverse=False, prepared=None, zoom_factor=1.0, pan_offset=(0.0, 0.0)):
+def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, slideshow_reverse=False, prepared=None, zoom_factor=1.0, pan_offset=(0.0, 0.0), rotation_quadrants=0, flip_horizontal=False):
     import time
     curses.curs_set(0)
     curses.use_default_colors()
@@ -376,7 +389,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         if prepared is None:
             seek = getattr(render, '_seek', 10)
             fmt = getattr(render, '_format', 'jpeg')
-            prepared = _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, fmt)
+            prepared = _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, fmt, rotation_quadrants, flip_horizontal)
         frames = prepared["frames"]
         color_maps = prepared["color_maps"]
         durations = prepared["durations"]
@@ -435,6 +448,10 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                         return 'pan_up'
                     if key == ord('l'):
                         return 'pan_right'
+                    if key == ord('r'):
+                        return 'rotate_clockwise'
+                    if key == ord('f'):
+                        return 'flip_horizontal'
                     return key
                 if (time.time() - start_time) >= duration:
                     break
@@ -466,6 +483,10 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                     return 'pan_up'
                 if key == ord('l'):
                     return 'pan_right'
+                if key == ord('r'):
+                    return 'rotate_clockwise'
+                if key == ord('f'):
+                    return 'flip_horizontal'
                 if key != -1:
                     stdscr.nodelay(False)
                     return key
@@ -580,11 +601,11 @@ def main():
             max_y, max_x = stdscr.getmaxyx()
             return max_x * 2, max_y * 4
 
-        def preload_key(image_idx, img_w, img_h):
-            return (image_idx, img_w, img_h, sharpen, color, args.seek, args.format)
+        def preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal):
+            return (image_idx, img_w, img_h, sharpen, color, args.seek, args.format, rotation_quadrants, flip_horizontal)
 
-        def schedule_preload(image_idx, img_w, img_h, executor):
-            key = preload_key(image_idx, img_w, img_h)
+        def schedule_preload(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal, executor):
+            key = preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal)
             if key in preload_futures:
                 return
             preload_futures[key] = executor.submit(
@@ -596,10 +617,12 @@ def main():
                 color,
                 args.seek,
                 args.format,
+                rotation_quadrants,
+                flip_horizontal,
             )
 
-        def get_preloaded(image_idx, img_w, img_h):
-            key = preload_key(image_idx, img_w, img_h)
+        def get_preloaded(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal):
+            key = preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal)
             future = preload_futures.get(key)
             if future is None:
                 return None
@@ -608,8 +631,8 @@ def main():
             finally:
                 preload_futures.pop(key, None)
 
-        def trim_preload_cache(keep_indices, img_w, img_h):
-            keep_keys = {preload_key(i, img_w, img_h) for i in keep_indices}
+        def trim_preload_cache(keep_indices, img_w, img_h, rotation_quadrants, flip_horizontal):
+            keep_keys = {preload_key(i, img_w, img_h, rotation_quadrants, flip_horizontal) for i in keep_indices}
             stale_keys = [k for k in preload_futures.keys() if k not in keep_keys]
             for key in stale_keys:
                 future = preload_futures.pop(key)
@@ -624,6 +647,8 @@ def main():
         zoom_factor = 1.0
         pan_y = 0.0
         pan_x = 0.0
+        rotation_quadrants = 0
+        flip_horizontal = False
         last_rendered_idx = idx
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             while True:
@@ -632,18 +657,20 @@ def main():
                     zoom_factor = 1.0
                     pan_y = 0.0
                     pan_x = 0.0
+                    rotation_quadrants = 0
+                    flip_horizontal = False
                     last_rendered_idx = idx
 
                 img_w, img_h = viewport_dims()
                 next_idx = (idx + 1) % n
                 prev_idx = (idx - 1) % n
-                schedule_preload(idx, img_w, img_h, executor)
-                schedule_preload(next_idx, img_w, img_h, executor)
-                schedule_preload(prev_idx, img_w, img_h, executor)
-                trim_preload_cache({idx, next_idx, prev_idx}, img_w, img_h)
+                schedule_preload(idx, img_w, img_h, rotation_quadrants, flip_horizontal, executor)
+                schedule_preload(next_idx, img_w, img_h, rotation_quadrants, flip_horizontal, executor)
+                schedule_preload(prev_idx, img_w, img_h, rotation_quadrants, flip_horizontal, executor)
+                trim_preload_cache({idx, next_idx, prev_idx}, img_w, img_h, rotation_quadrants, flip_horizontal)
 
                 try:
-                    prepared = get_preloaded(idx, img_w, img_h)
+                    prepared = get_preloaded(idx, img_w, img_h, rotation_quadrants, flip_horizontal)
                     key = render(
                         stdscr,
                         image_files,
@@ -658,6 +685,8 @@ def main():
                         prepared=prepared,
                         zoom_factor=zoom_factor,
                         pan_offset=(pan_y, pan_x),
+                        rotation_quadrants=rotation_quadrants,
+                        flip_horizontal=flip_horizontal,
                     )
                 except Exception as e:
                     stdscr.clear()
@@ -677,6 +706,16 @@ def main():
                     continue
                 if key == 'reset_zoom':
                     zoom_factor = 1.0
+                    pan_y = 0.0
+                    pan_x = 0.0
+                    continue
+                if key == 'rotate_clockwise':
+                    rotation_quadrants = (rotation_quadrants + 1) % 4
+                    pan_y = 0.0
+                    pan_x = 0.0
+                    continue
+                if key == 'flip_horizontal':
+                    flip_horizontal = not flip_horizontal
                     pan_y = 0.0
                     pan_x = 0.0
                     continue

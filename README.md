@@ -12,6 +12,7 @@ It was written to be used as a terminal image viewer with [`nnn`](https://github
 - Dithering options (ordered, error diffusion)
 - Video preview (frame extraction with ffmpeg)
 - Zoom in, zoom out, pan while zoom
+- Rotate clockwise, flip
 - Keyboard navigation and slideshow mode
 
 <br>
@@ -107,6 +108,8 @@ options:
 | s, S            | Toggle forward/reverse slideshow |
 | +, -, 0         | Zoom in, zoom out, zoom reset |
 | h, j, k, l      | Pan left, down, up, right while zoomed |
+| r               | Rotate clockwise |
+| f               | Flip horizontally |
 | d, D            | Decrease/increase slideshow delay by 1 sec |
 | q, Esc          | Quit     |
 
