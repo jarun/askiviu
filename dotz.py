@@ -5,6 +5,7 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import curses
+from datetime import datetime
 import sys
 import os
 
@@ -182,6 +183,148 @@ def get_image_files(directory, include_videos=False):
 
 def _display_name(image_path, display_name):
     return os.path.basename(display_name or image_path or "[video frame]") if display_name or isinstance(image_path, (str, bytes, os.PathLike)) else "[video frame]"
+
+
+def _format_file_size(size):
+    size = max(0, int(size))
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    unit_index = 0
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    precision = 0 if unit_index == 0 else 1
+    return f"{size:.{precision}f} {units[unit_index]}"
+
+
+def _format_duration(seconds):
+    try:
+        total_seconds = max(0, int(round(float(seconds))))
+    except (TypeError, ValueError):
+        return "unavailable"
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
+
+
+def _probe_video_metadata(path):
+    """Read video dimensions, container format, and duration with ffprobe JSON output."""
+    import json
+    import subprocess
+
+    command = [
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=format_name,duration:stream=width,height",
+        "-of", "json",
+        os.fspath(path),
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=5)
+        if result.returncode != 0:
+            return {}
+        probe = json.loads(result.stdout)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return {}
+
+    streams = probe.get("streams", [])
+    video_stream = next((stream for stream in streams if stream.get("width") and stream.get("height")), {})
+    format_info = probe.get("format", {})
+    return {
+        "width": video_stream.get("width"),
+        "height": video_stream.get("height"),
+        "format": format_info.get("format_name"),
+        "duration": format_info.get("duration"),
+    }
+
+
+def _metadata_lines(image_item):
+    """Build metadata text for an image or video item without altering its rendered state."""
+    image_path = image_item
+    display_name = None
+    if isinstance(image_item, tuple) and len(image_item) == 2:
+        image_path, display_name = image_item
+
+    shown_name = display_name or (_display_name(image_path, None) if not isinstance(image_path, Image.Image) else "[in-memory image]")
+    file_size = "unavailable"
+    modified = "unavailable"
+    try:
+        file_stat = os.stat(image_path)
+        file_size = _format_file_size(file_stat.st_size)
+        modified = datetime.fromtimestamp(file_stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+    except (OSError, TypeError):
+        pass
+
+    if _is_video_path(image_path):
+        metadata = _probe_video_metadata(image_path)
+        width = metadata.get("width")
+        height = metadata.get("height")
+        dimensions = f"{width} x {height}" if width and height else "unavailable"
+        format_name = (metadata.get("format") or os.path.splitext(str(image_path))[1].lstrip(".") or "unknown").upper()
+        return [
+            f"File: {shown_name}",
+            f"Dimensions: {dimensions}",
+            f"Format: {format_name}",
+            f"Size: {file_size}",
+            f"Modified: {modified}",
+            f"Duration: {_format_duration(metadata.get('duration'))}",
+        ]
+
+    image = None
+    close_image = False
+    try:
+        if isinstance(image_path, Image.Image):
+            image = image_path
+        else:
+            image = Image.open(image_path)
+            close_image = True
+        format_name = (image.format or os.path.splitext(str(image_path))[1].lstrip(".") or "unknown").upper()
+        lines = [
+            f"File: {shown_name}",
+            f"Dimensions: {image.width} x {image.height}",
+            f"Format: {format_name}",
+            f"Size: {file_size}",
+            f"Modified: {modified}",
+        ]
+        if format_name == "GIF":
+            lines.append(f"GIF frames: {getattr(image, 'n_frames', 1)}")
+        return lines
+    except (Image.UnidentifiedImageError, OSError, TypeError, ValueError):
+        return [
+            f"File: {shown_name}",
+            "Dimensions: unavailable",
+            "Format: unknown",
+            f"Size: {file_size}",
+            f"Modified: {modified}",
+        ]
+    finally:
+        if close_image and image is not None:
+            image.close()
+
+
+def _show_metadata_panel(stdscr, lines):
+    """Show a centered metadata modal and wait for one key press."""
+    try:
+        max_y, max_x = stdscr.getmaxyx()
+        if max_y < 5 or max_x < 20:
+            return
+        panel_width = min(max_x - 2, max(24, max(len(line) for line in lines) + 4))
+        panel_height = min(max_y - 2, len(lines) + 2)
+        top = (max_y - panel_height) // 2
+        left = (max_x - panel_width) // 2
+        panel = curses.newwin(panel_height, panel_width, top, left)
+        panel.box()
+        panel.addnstr(0, 2, " Metadata ", panel_width - 4, curses.A_BOLD)
+        for row, line in enumerate(lines[:panel_height - 2], start=1):
+            panel.addnstr(row, 2, line, panel_width - 4)
+        panel.refresh()
+        stdscr.nodelay(False)
+        panel.getch()
+    except curses.error:
+        pass
+    finally:
+        try:
+            stdscr.nodelay(True)
+        except curses.error:
+            pass
 
 
 def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extractformat, rotation_quadrants=0, flip_horizontal=False):
@@ -452,6 +595,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                         return 'rotate_clockwise'
                     if key == ord('f'):
                         return 'flip_horizontal'
+                    if key == ord('i'):
+                        return 'show_metadata'
                     return key
                 if (time.time() - start_time) >= duration:
                     break
@@ -487,6 +632,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                     return 'rotate_clockwise'
                 if key == ord('f'):
                     return 'flip_horizontal'
+                if key == ord('i'):
+                    return 'show_metadata'
                 if key != -1:
                     stdscr.nodelay(False)
                     return key
@@ -695,6 +842,9 @@ def main():
                     stdscr.getch()
                     return
                 # Navigation
+                if key == 'show_metadata':
+                    _show_metadata_panel(stdscr, _metadata_lines(image_files[idx]))
+                    continue
                 if key == 'zoom_in':
                     zoom_factor = min(4.0, zoom_factor + 0.25)
                     continue

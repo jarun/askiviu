@@ -11,6 +11,7 @@ It was written to be used as a terminal image viewer with [`nnn`](https://github
 - xterm-256 color and grayscale
 - Dithering options (ordered, error diffusion)
 - Video preview (frame extraction with ffmpeg)
+- File metadata panel
 - Zoom in, zoom out, pan while zoom
 - Rotate clockwise, flip
 - Keyboard navigation and slideshow mode
@@ -110,6 +111,7 @@ options:
 | h, j, k, l      | Pan left, down, up, right while zoomed |
 | r               | Rotate clockwise |
 | f               | Flip horizontally |
+| i               | Show file metadata |
 | d, D            | Decrease/increase slideshow delay by 1 sec |
 | q, Esc          | Quit     |
 
