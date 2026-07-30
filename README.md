@@ -14,6 +14,7 @@ It was written to be used as a terminal image viewer with [`nnn`](https://github
 - File metadata panel
 - Zoom in, zoom out, pan while zoom
 - Rotate clockwise, flip
+- Bounded background preloading
 - Keyboard navigation and slideshow mode
 
 <br>
@@ -78,6 +79,8 @@ options:
   -f {jpeg,png}, --format {jpeg,png}
                         Format for extracted video frames: jpeg (default) or png
 ```
+
+Dotz keeps the current item plus one next and one previous item prepared in memory.
 
 #### Examples
 

@@ -3,6 +3,7 @@
 
 
 import argparse
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 import curses
 from datetime import datetime
@@ -35,40 +36,41 @@ BAYER_4x2 = np.array([
     [2, 6],
     [5, 1],
     [7, 3],
-], dtype=np.float64)
+], dtype=np.float32)
 ORDERED_THRESHOLDS = (BAYER_4x2 + 0.5) / 8.0
 
 # ── xterm-256 color cube helpers ──────────────────────────────────────────────
 # Colors 16-231 form a 6×6×6 RGB cube. Values per axis: 0,95,135,175,215,255.
 # Colors 232-255 are a 24-step greyscale ramp.
-_CUBE_VALS = np.array([0, 0x5f, 0x87, 0xaf, 0xd7, 0xff], dtype=np.float64)
-_GREY_VALS = np.array([8 + 10 * i for i in range(24)], dtype=np.float64)
+_CUBE_VALS = np.array([0, 0x5f, 0x87, 0xaf, 0xd7, 0xff], dtype=np.float32)
+_GREY_VALS = np.array([8 + 10 * i for i in range(24)], dtype=np.float32)
+_COLOR_PAIR_ATTRS = None
 
+def _nearest_xterm_indices(rgb_values):
+    """Return exact nearest xterm-256 color indices without a full palette tensor."""
+    samples = rgb_values.reshape(-1, 3)
+    cube_axes = np.abs(samples[:, :, None] - _CUBE_VALS[None, None, :]).argmin(axis=2)
+    cube_values = _CUBE_VALS[cube_axes]
+    cube_distances = np.sum((samples - cube_values) ** 2, axis=1)
 
-def _build_xterm256_table():
-    """Build an (N, 3) array of all xterm-256 RGB values (indices 16-255)."""
-    table = np.zeros((240, 3), dtype=np.float64)
-    # 6×6×6 cube: indices 0-215 → xterm 16-231
-    idx = 0
-    for r in _CUBE_VALS:
-        for g in _CUBE_VALS:
-            for b in _CUBE_VALS:
-                table[idx] = (r, g, b)
-                idx += 1
-    # greyscale ramp: indices 216-239 → xterm 232-255
-    for i, v in enumerate(_GREY_VALS):
-        table[216 + i] = (v, v, v)
-    return table
+    grey_axes = np.abs(samples.mean(axis=1)[:, None] - _GREY_VALS[None, :]).argmin(axis=1)
+    grey_values = _GREY_VALS[grey_axes]
+    grey_distances = np.sum((samples - grey_values[:, None]) ** 2, axis=1)
 
-
-_XTERM_TABLE = _build_xterm256_table()  # (240, 3)
+    cube_indices = 16 + 36 * cube_axes[:, 0] + 6 * cube_axes[:, 1] + cube_axes[:, 2]
+    return np.where(grey_distances < cube_distances, 232 + grey_axes, cube_indices).astype(np.int32, copy=False)
 
 
 def _init_color_pairs():
     """Initialise ncurses color pairs 1-240 mapping to xterm colors 16-255."""
+    global _COLOR_PAIR_ATTRS
+    if _COLOR_PAIR_ATTRS is not None:
+        return _COLOR_PAIR_ATTRS
     for i in range(240):
         xterm_idx = i + 16
         curses.init_pair(i + 1, xterm_idx, -1)  # fg=xterm color, bg=default
+    _COLOR_PAIR_ATTRS = tuple(curses.color_pair(i + 1) for i in range(240))
+    return _COLOR_PAIR_ATTRS
 
 
 def srgb_to_linear(c):
@@ -116,25 +118,20 @@ def _load_image(image_path, img_w, img_h, sharpen, color, rotation_quadrants=0, 
         img_grey_r = img_grey.resize((fit_w, fit_h), Image.LANCZOS)
         if sharpen: img_grey_r = img_grey_r.filter(ImageFilter.UnsharpMask(radius=1.2, percent=100, threshold=2))
         oy, ox = (img_h - fit_h) // 2, (img_w - fit_w) // 2
-        raw = np.asarray(img_grey_r, dtype=np.float64) / 255.0
+        raw = np.asarray(img_grey_r, dtype=np.float32) / 255.0
         linear = srgb_to_linear(raw)
-        canvas = np.zeros((img_h, img_w), dtype=np.float64)
+        canvas = np.zeros((img_h, img_w), dtype=np.float32)
         canvas[oy:oy + fit_h, ox:ox + fit_w] = linear
         perceptual = linear_to_srgb(canvas)
         frames.append(perceptual)
         if color and img_rgb is not None:
             img_rgb_r = img_rgb.resize((fit_w, fit_h), Image.LANCZOS)
-            rgb_arr = np.asarray(img_rgb_r, dtype=np.float64)
-            canvas_rgb = np.zeros((img_h, img_w, 3), dtype=np.float64)
+            rgb_arr = np.asarray(img_rgb_r, dtype=np.float32)
+            canvas_rgb = np.zeros((img_h, img_w, 3), dtype=np.float32)
             canvas_rgb[oy:oy + fit_h, ox:ox + fit_w] = rgb_arr
             blocks = canvas_rgb[:cell_rows*4, :cell_cols*2, :].reshape(cell_rows, 4, cell_cols, 2, 3)
-            block_means = blocks.mean(axis=(1, 3), dtype=np.float64)
-            block_means_flat = block_means.reshape(-1, 3)
-            diffs = block_means_flat[:, None, :] - _XTERM_TABLE[None, :, :]
-            np.square(diffs, out=diffs)
-            dists = np.sum(diffs, axis=2)
-            color_indices = np.argmin(dists, axis=1) + 16
-            color_map = color_indices.reshape(cell_rows, cell_cols).astype(np.int32)
+            block_means = blocks.mean(axis=(1, 3), dtype=np.float32)
+            color_map = _nearest_xterm_indices(block_means).reshape(cell_rows, cell_cols)
         else:
             color_map = None
         color_maps.append(color_map)
@@ -370,6 +367,10 @@ def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extract
     return {
         "frames": frames,
         "color_maps": color_maps,
+        "block_means": [
+            frame.reshape(img_h // 4, 4, img_w // 2, 2).mean(axis=(1, 3), dtype=np.float32)
+            for frame in frames
+        ],
         "durations": durations,
         "shown_name": _display_name(image_path, display_name),
     }
@@ -381,6 +382,55 @@ def _clamp_delay(delay):
     except (TypeError, ValueError):
         return 1
     return max(1, min(60, delay))
+
+
+class _PreparedFrameCache:
+    """Bound prepared render items while keeping active cache targets available."""
+
+    def __init__(self, capacity):
+        self.capacity = max(1, int(capacity))
+        self._items = OrderedDict()
+
+    def get(self, key):
+        try:
+            value = self._items.pop(key)
+        except KeyError:
+            return None
+        self._items[key] = value
+        return value
+
+    def put(self, key, value, protected_keys=()):
+        protected_keys = set(protected_keys)
+        self._items.pop(key, None)
+        self._items[key] = value
+        while len(self._items) > self.capacity:
+            eviction_key = next((item_key for item_key in self._items if item_key not in protected_keys), None)
+            if eviction_key is None:
+                eviction_key = next(iter(self._items))
+            self._items.pop(eviction_key)
+
+    def discard_except(self, keys):
+        keys = set(keys)
+        for key in list(self._items):
+            if key not in keys:
+                self._items.pop(key)
+
+    def keys(self):
+        return tuple(self._items)
+
+    def __contains__(self, key):
+        return key in self._items
+
+
+def _neighbor_indices(index, neighbor_count, item_count):
+    """Return the current index followed by unique forward/backward neighbors."""
+    indices = [index]
+    for distance in range(1, neighbor_count + 1):
+        for offset in (distance, -distance):
+            neighbor = (index + offset) % item_count
+            if neighbor not in indices:
+                indices.append(neighbor)
+    return indices
 
 
 def _format_status(idx, total, shown_name, zoom_factor, slideshow_active, slideshow_reverse, delay):
@@ -464,10 +514,9 @@ def _update_slideshow_state(slideshow_active, slideshow_reverse, key):
     return slideshow_active, slideshow_reverse
 
 
-def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, use_error_dither, use_ordered_dither):
+def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, color_pair_attrs, use_error_dither, use_ordered_dither):
     ATTR_BOUNDS = (0.30, 0.62)
     half_threshold = 0.5
-    color_pair = curses.color_pair
     for cy in range(rows):
         segments = []
         current_attr = None
@@ -499,7 +548,7 @@ def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, colo
                         if block[dr, dc] > half_threshold:
                             code |= BRAILLE_MAP[dr][dc]
             if color and color_map is not None and color_map[cy, cx] >= 16:
-                attr |= color_pair(color_map[cy, cx] - 16 + 1)
+                attr |= color_pair_attrs[color_map[cy, cx] - 16]
             ch = chr(code)
             if current_attr is None or current_attr != attr:
                 if current_chars:
@@ -524,7 +573,9 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
     curses.use_default_colors()
     if color:
         curses.start_color()
-        _init_color_pairs()
+        color_pair_attrs = _init_color_pairs()
+    else:
+        color_pair_attrs = None
 
     n = len(image_files)
     def floyd_steinberg_dither(img):
@@ -561,6 +612,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
             prepared = _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, fmt, rotation_quadrants, flip_horizontal)
         frames = prepared["frames"]
         color_maps = prepared["color_maps"]
+        base_block_means = prepared.get("block_means")
         durations = prepared["durations"]
         shown_name = prepared["shown_name"]
         is_animated = len(frames) > 1
@@ -580,16 +632,25 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         stdscr.erase()
         perceptual = frames[frame_idx]
         color_map = color_maps[frame_idx] if color_maps else None
-        frame_view = perceptual[:rows * 4, :cols * 2]
-        frame_view = _zoom_array(frame_view, zoom_factor, target_size=(rows * 4, cols * 2), pan_offset=pan_offset)
-        color_map = _zoom_array(color_map, zoom_factor, target_size=(rows, cols), pan_offset=pan_offset)
-        if use_error_dither:
-            dithered = floyd_steinberg_dither(frame_view.copy())
-            blocks = dithered.reshape(rows, 4, cols, 2)
+        if zoom_factor == 1.0:
+            frame_view = perceptual
+            if use_error_dither:
+                dithered = floyd_steinberg_dither(frame_view.copy())
+                blocks = dithered.reshape(rows, 4, cols, 2)
+                block_means = blocks.mean(axis=(1, 3), dtype=np.float32)
+            else:
+                blocks = frame_view.reshape(rows, 4, cols, 2)
+                block_means = base_block_means[frame_idx] if base_block_means is not None else blocks.mean(axis=(1, 3), dtype=np.float32)
         else:
-            blocks = frame_view.reshape(rows, 4, cols, 2)
-        block_means = blocks.mean(axis=(1, 3))
-        _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, use_error_dither, use_ordered_dither)
+            frame_view = _zoom_array(perceptual, zoom_factor, target_size=(rows * 4, cols * 2), pan_offset=pan_offset)
+            color_map = _zoom_array(color_map, zoom_factor, target_size=(rows, cols), pan_offset=pan_offset)
+            if use_error_dither:
+                dithered = floyd_steinberg_dither(frame_view.copy())
+                blocks = dithered.reshape(rows, 4, cols, 2)
+            else:
+                blocks = frame_view.reshape(rows, 4, cols, 2)
+            block_means = blocks.mean(axis=(1, 3), dtype=np.float32)
+        _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, color_pair_attrs, use_error_dither, use_ordered_dither)
         try:
             status = _format_status(idx, n, shown_name, zoom_factor, slideshow, slideshow_reverse, wait_time)
             stdscr.addnstr(status_y, 0, status, max_x - 1, curses.A_REVERSE)
@@ -704,6 +765,9 @@ def main():
     parser.add_argument("-v", "--version", action="version", version=_VERSION_)
     args = parser.parse_args()
 
+    preload_neighbors = 1
+    cache_size = 3
+
     slideshow = args.delay is not None
     slideshow_delay = _clamp_delay(args.delay if slideshow else 5)
 
@@ -771,7 +835,8 @@ def main():
     def render_with_video_support(stdscr, image_files, start_idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False):
         idx = start_idx
         n = len(image_files)
-        max_workers = min(4, max(2, os.cpu_count() or 2))
+        max_workers = min(4, cache_size, max(1, os.cpu_count() or 1))
+        prepared_cache = _PreparedFrameCache(cache_size)
         preload_futures = {}
 
         def viewport_dims():
@@ -781,9 +846,17 @@ def main():
         def preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal):
             return (image_idx, img_w, img_h, sharpen, color, args.seek, args.format, rotation_quadrants, flip_horizontal)
 
+        def preload_targets(image_idx, current_rotation, current_flip):
+            targets = []
+            for target_idx in _neighbor_indices(image_idx, preload_neighbors, n):
+                rotation = current_rotation if target_idx == image_idx else 0
+                flip = current_flip if target_idx == image_idx else False
+                targets.append((target_idx, rotation, flip))
+            return targets
+
         def schedule_preload(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal, executor):
             key = preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal)
-            if key in preload_futures:
+            if key in prepared_cache or key in preload_futures:
                 return
             preload_futures[key] = executor.submit(
                 _prepare_render_item,
@@ -798,18 +871,31 @@ def main():
                 flip_horizontal,
             )
 
-        def get_preloaded(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal):
+        def get_preloaded(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal, protected_keys, executor):
             key = preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal)
-            future = preload_futures.get(key)
-            if future is None:
-                return None
-            try:
-                return future.result()
-            finally:
-                preload_futures.pop(key, None)
+            prepared = prepared_cache.get(key)
+            if prepared is not None:
+                return prepared
+            schedule_preload(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal, executor)
+            future = preload_futures.pop(key)
+            prepared = future.result()
+            prepared_cache.put(key, prepared, protected_keys)
+            return prepared
 
-        def trim_preload_cache(keep_indices, img_w, img_h, rotation_quadrants, flip_horizontal):
-            keep_keys = {preload_key(i, img_w, img_h, rotation_quadrants, flip_horizontal) for i in keep_indices}
+        def collect_completed_preloads(keep_keys):
+            for key, future in list(preload_futures.items()):
+                if not future.done():
+                    continue
+                preload_futures.pop(key)
+                if future.cancelled():
+                    continue
+                try:
+                    prepared_cache.put(key, future.result(), keep_keys)
+                except Exception:
+                    pass
+
+        def trim_preload_cache(keep_keys):
+            prepared_cache.discard_except(keep_keys)
             stale_keys = [k for k in preload_futures.keys() if k not in keep_keys]
             for key in stale_keys:
                 future = preload_futures.pop(key)
@@ -839,15 +925,18 @@ def main():
                     last_rendered_idx = idx
 
                 img_w, img_h = viewport_dims()
-                next_idx = (idx + 1) % n
-                prev_idx = (idx - 1) % n
-                schedule_preload(idx, img_w, img_h, rotation_quadrants, flip_horizontal, executor)
-                schedule_preload(next_idx, img_w, img_h, rotation_quadrants, flip_horizontal, executor)
-                schedule_preload(prev_idx, img_w, img_h, rotation_quadrants, flip_horizontal, executor)
-                trim_preload_cache({idx, next_idx, prev_idx}, img_w, img_h, rotation_quadrants, flip_horizontal)
+                targets = preload_targets(idx, rotation_quadrants, flip_horizontal)
+                target_keys = {
+                    preload_key(target_idx, img_w, img_h, target_rotation, target_flip)
+                    for target_idx, target_rotation, target_flip in targets
+                }
+                trim_preload_cache(target_keys)
+                for target_idx, target_rotation, target_flip in targets:
+                    schedule_preload(target_idx, img_w, img_h, target_rotation, target_flip, executor)
 
                 try:
-                    prepared = get_preloaded(idx, img_w, img_h, rotation_quadrants, flip_horizontal)
+                    prepared = get_preloaded(idx, img_w, img_h, rotation_quadrants, flip_horizontal, target_keys, executor)
+                    collect_completed_preloads(target_keys)
                     key = render(
                         stdscr,
                         image_files,
