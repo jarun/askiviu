@@ -193,6 +193,14 @@ def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extract
     }
 
 
+def _clamp_delay(delay):
+    try:
+        delay = int(delay)
+    except (TypeError, ValueError):
+        return 1
+    return max(1, min(60, delay))
+
+
 def _update_slideshow_state(slideshow_active, slideshow_reverse, key):
     if key == 'toggle_slideshow':
         if slideshow_active and slideshow_reverse:
@@ -354,6 +362,10 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                     return 'toggle_slideshow'
                 if key == ord('S'):
                     return 'toggle_slideshow_reverse'
+                if key == ord('+'):
+                    return 'increase_delay'
+                if key == ord('-'):
+                    return 'decrease_delay'
                 if key != -1:
                     stdscr.nodelay(False)
                     return key
@@ -395,7 +407,7 @@ def main():
     args = parser.parse_args()
 
     slideshow = args.delay is not None
-    slideshow_delay = args.delay if slideshow else 5
+    slideshow_delay = _clamp_delay(args.delay if slideshow else 5)
 
     if args.path == '-':
         # Read image from stdin
@@ -508,6 +520,7 @@ def main():
         render._format = args.format
         slideshow_active = slideshow
         slideshow_reverse = False
+        current_delay = wait_time
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             while True:
                 img_w, img_h = viewport_dims()
@@ -528,7 +541,7 @@ def main():
                         dither_mode,
                         color,
                         single_image_mode=False,
-                        wait_time=wait_time,
+                        wait_time=current_delay,
                         slideshow=slideshow_active,
                         prepared=prepared,
                     )
@@ -539,6 +552,12 @@ def main():
                     stdscr.getch()
                     return
                 # Navigation
+                if key == 'increase_delay':
+                    current_delay = _clamp_delay(current_delay + 1)
+                    continue
+                if key == 'decrease_delay':
+                    current_delay = _clamp_delay(current_delay - 1)
+                    continue
                 slideshow_active, slideshow_reverse = _update_slideshow_state(slideshow_active, slideshow_reverse, key)
                 if key in ('toggle_slideshow', 'toggle_slideshow_reverse'):
                     continue

@@ -97,6 +97,7 @@ options:
 | Down            | Last     |
 | s               | Toggle slideshow |
 | S               | Toggle reverse slideshow |
+| +, -            | Increase/decrease slideshow delay by 1 sec |
 | q, Esc          | Quit     |
 
 ## Dependencies
