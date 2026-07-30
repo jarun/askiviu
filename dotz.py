@@ -387,7 +387,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         block_means = blocks.mean(axis=(1, 3))
         _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, use_error_dither, use_ordered_dither)
         try:
-            stdscr.addnstr(status_y, 0, f"[{idx+1}/{n}] {shown_name}", max_x - 1, curses.A_REVERSE)
+            stdscr.addnstr(status_y, 0, f"[{idx+1}/{n}] {zoom_factor:.2f}x {shown_name}", max_x - 1, curses.A_REVERSE)
         except curses.error:
             pass
         stdscr.refresh()
@@ -402,6 +402,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                         return 'zoom_in'
                     if key == ord('-'):
                         return 'zoom_out'
+                    if key == ord('0'):
+                        return 'reset_zoom'
                     return key
                 if (time.time() - start_time) >= duration:
                     break
@@ -423,6 +425,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                     return 'zoom_in'
                 if key == ord('-'):
                     return 'zoom_out'
+                if key == ord('0'):
+                    return 'reset_zoom'
                 if key != -1:
                     stdscr.nodelay(False)
                     return key
@@ -622,6 +626,9 @@ def main():
                     continue
                 if key == 'zoom_out':
                     zoom_factor = max(0.25, zoom_factor - 0.25)
+                    continue
+                if key == 'reset_zoom':
+                    zoom_factor = 1.0
                     continue
                 if key == 'increase_delay':
                     current_delay = _clamp_delay(current_delay + 1)

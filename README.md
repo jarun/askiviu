@@ -105,7 +105,7 @@ options:
 | Up              | First    |
 | Down            | Last     |
 | s, S            | Toggle forward/reverse slideshow |
-| +, -            | Zoom in, zoom out |
+| +, -, 0         | Zoom in, zoom out, zoom reset |
 | d, D            | Decrease/increase slideshow delay by 1 sec |
 | q, Esc          | Quit     |
 
