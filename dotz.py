@@ -3,6 +3,7 @@
 
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import curses
 import sys
 import os
@@ -62,28 +63,11 @@ def _build_xterm256_table():
 _XTERM_TABLE = _build_xterm256_table()  # (240, 3)
 
 
-def _nearest_xterm256(r, g, b):
-    """Return the xterm-256 color index (16-255) closest to an sRGB triplet (0-255)."""
-    diff = _XTERM_TABLE - np.array([r, g, b], dtype=np.float64)
-    dists = np.sum(diff * diff, axis=1)
-    return int(np.argmin(dists)) + 16
-
-
 def _init_color_pairs():
     """Initialise ncurses color pairs 1-240 mapping to xterm colors 16-255."""
     for i in range(240):
         xterm_idx = i + 16
         curses.init_pair(i + 1, xterm_idx, -1)  # fg=xterm color, bg=default
-
-
-def _cell_to_global(local_brightness, attr, bounds):
-    """Map a cell's local brightness back to global perceptual brightness."""
-    if attr == curses.A_DIM:
-        return local_brightness * bounds[0]
-    elif attr == curses.A_NORMAL:
-        return bounds[0] + local_brightness * (bounds[1] - bounds[0])
-    else:
-        return bounds[1] + local_brightness * (1.0 - bounds[1])
 
 
 def srgb_to_linear(c):
@@ -187,6 +171,28 @@ def _display_name(image_path, display_name):
     return os.path.basename(display_name or image_path or "[video frame]") if display_name or isinstance(image_path, (str, bytes, os.PathLike)) else "[video frame]"
 
 
+def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extractformat):
+    """Prepare renderable frame buffers for one item. Safe to run in worker threads."""
+    image_path = image_item
+    display_name = None
+    if _is_video_path(image_path):
+        img = extract_video_frame(image_path, seek, extractformat)
+        display_name = image_path
+        frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(img, img_w, img_h, sharpen, color)
+    else:
+        if isinstance(image_path, tuple) and len(image_path) == 2:
+            image_path, display_name = image_path
+        elif isinstance(image_path, Image.Image):
+            display_name = '[video frame]'
+        frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(image_path, img_w, img_h, sharpen, color)
+    return {
+        "frames": frames,
+        "color_maps": color_maps,
+        "durations": durations,
+        "shown_name": _display_name(image_path, display_name),
+    }
+
+
 def _update_slideshow_state(slideshow_active, slideshow_reverse, key):
     if key == 'toggle_slideshow':
         if slideshow_active and slideshow_reverse:
@@ -253,7 +259,7 @@ def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, colo
                 pass
 
 
-def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False):
+def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, prepared=None):
     import time
     curses.curs_set(0)
     curses.use_default_colors()
@@ -289,27 +295,15 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
     img_w = cols * 2
     img_h = rows * 4
     try:
-        image_path = image_files[idx]
-        display_name = None
-        if _is_video_path(image_path):
-            try:
-                seek = getattr(render, '_seek', 10)
-                fmt = getattr(render, '_format', 'jpeg')
-                img = extract_video_frame(image_path, seek, fmt)
-                display_name = image_path
-                frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(img, img_w, img_h, sharpen, color)
-            except Exception as e:
-                stdscr.clear()
-                stdscr.addstr(0, 0, f"Video frame error: {e}")
-                stdscr.refresh()
-                stdscr.getch()
-                return -1
-        else:
-            if isinstance(image_path, tuple) and len(image_path) == 2:
-                image_path, display_name = image_path
-            elif isinstance(image_path, Image.Image):
-                display_name = '[video frame]'
-            frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(image_path, img_w, img_h, sharpen, color)
+        image_item = image_files[idx]
+        if prepared is None:
+            seek = getattr(render, '_seek', 10)
+            fmt = getattr(render, '_format', 'jpeg')
+            prepared = _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, fmt)
+        frames = prepared["frames"]
+        color_maps = prepared["color_maps"]
+        durations = prepared["durations"]
+        shown_name = prepared["shown_name"]
         is_animated = len(frames) > 1
         frame_idx = 0
         key = -1
@@ -320,7 +314,6 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         stdscr.refresh()
         stdscr.getch()
         return -1
-    shown_name = _display_name(image_path, display_name)
     thresholds = ORDERED_THRESHOLDS
     use_error_dither = dither_mode == "error"
     use_ordered_dither = dither_mode == "ordered"
@@ -468,43 +461,106 @@ def main():
     def render_with_video_support(stdscr, image_files, start_idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False):
         idx = start_idx
         n = len(image_files)
+        max_workers = min(4, max(2, os.cpu_count() or 2))
+        preload_futures = {}
+
+        def viewport_dims():
+            max_y, max_x = stdscr.getmaxyx()
+            return max_x * 2, max_y * 4
+
+        def preload_key(image_idx, img_w, img_h):
+            return (image_idx, img_w, img_h, sharpen, color, args.seek, args.format)
+
+        def schedule_preload(image_idx, img_w, img_h, executor):
+            key = preload_key(image_idx, img_w, img_h)
+            if key in preload_futures:
+                return
+            preload_futures[key] = executor.submit(
+                _prepare_render_item,
+                image_files[image_idx],
+                img_w,
+                img_h,
+                sharpen,
+                color,
+                args.seek,
+                args.format,
+            )
+
+        def get_preloaded(image_idx, img_w, img_h):
+            key = preload_key(image_idx, img_w, img_h)
+            future = preload_futures.get(key)
+            if future is None:
+                return None
+            try:
+                return future.result()
+            finally:
+                preload_futures.pop(key, None)
+
+        def trim_preload_cache(keep_indices, img_w, img_h):
+            keep_keys = {preload_key(i, img_w, img_h) for i in keep_indices}
+            stale_keys = [k for k in preload_futures.keys() if k not in keep_keys]
+            for key in stale_keys:
+                future = preload_futures.pop(key)
+                future.cancel()
+
         # Pass seek/format to render via function attributes
         render._seek = args.seek
         render._format = args.format
         slideshow_active = slideshow
         slideshow_reverse = False
-        while True:
-            try:
-                key = render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=wait_time, slideshow=slideshow_active)
-            except Exception as e:
-                stdscr.clear()
-                stdscr.addstr(0, 0, f"Error: {e}")
-                stdscr.refresh()
-                stdscr.getch()
-                return
-            # Navigation
-            slideshow_active, slideshow_reverse = _update_slideshow_state(slideshow_active, slideshow_reverse, key)
-            if key in ('toggle_slideshow', 'toggle_slideshow_reverse'):
-                continue
-            if slideshow_active and key not in ('slideshow_next', -1, 'toggle_slideshow', 'toggle_slideshow_reverse'):
-                # Any other key disables slideshow
-                slideshow_active = False
-                slideshow_reverse = False
-            if key == 'slideshow_next':
-                if slideshow_reverse:
-                    idx = (idx - 1) % n
-                else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            while True:
+                img_w, img_h = viewport_dims()
+                next_idx = (idx + 1) % n
+                prev_idx = (idx - 1) % n
+                schedule_preload(idx, img_w, img_h, executor)
+                schedule_preload(next_idx, img_w, img_h, executor)
+                schedule_preload(prev_idx, img_w, img_h, executor)
+                trim_preload_cache({idx, next_idx, prev_idx}, img_w, img_h)
+
+                try:
+                    prepared = get_preloaded(idx, img_w, img_h)
+                    key = render(
+                        stdscr,
+                        image_files,
+                        idx,
+                        sharpen,
+                        dither_mode,
+                        color,
+                        single_image_mode=False,
+                        wait_time=wait_time,
+                        slideshow=slideshow_active,
+                        prepared=prepared,
+                    )
+                except Exception as e:
+                    stdscr.clear()
+                    stdscr.addstr(0, 0, f"Error: {e}")
+                    stdscr.refresh()
+                    stdscr.getch()
+                    return
+                # Navigation
+                slideshow_active, slideshow_reverse = _update_slideshow_state(slideshow_active, slideshow_reverse, key)
+                if key in ('toggle_slideshow', 'toggle_slideshow_reverse'):
+                    continue
+                if slideshow_active and key not in ('slideshow_next', -1, 'toggle_slideshow', 'toggle_slideshow_reverse'):
+                    # Any other key disables slideshow
+                    slideshow_active = False
+                    slideshow_reverse = False
+                if key == 'slideshow_next':
+                    if slideshow_reverse:
+                        idx = (idx - 1) % n
+                    else:
+                        idx = (idx + 1) % n
+                elif key in (curses.KEY_RIGHT, ord('n'), ord(' ')):
                     idx = (idx + 1) % n
-            elif key in (curses.KEY_RIGHT, ord('n'), ord(' ')):
-                idx = (idx + 1) % n
-            elif key in (curses.KEY_LEFT, ord('p')):
-                idx = (idx - 1) % n
-            elif key == curses.KEY_UP:
-                idx = 0
-            elif key == curses.KEY_DOWN:
-                idx = n - 1
-            elif key in (ord('q'), 27):
-                break
+                elif key in (curses.KEY_LEFT, ord('p')):
+                    idx = (idx - 1) % n
+                elif key == curses.KEY_UP:
+                    idx = 0
+                elif key == curses.KEY_DOWN:
+                    idx = n - 1
+                elif key in (ord('q'), 27):
+                    break
 
     curses.wrapper(render_with_video_support, image_files, idx, not args.no_sharpen, args.dither, not args.no_color, wait_time=slideshow_delay, slideshow=slideshow)
 
