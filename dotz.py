@@ -30,6 +30,9 @@ _BRAILLE_BITS = np.asarray(BRAILLE_MAP, dtype=np.uint16)
 VIDEO_EXTS = frozenset({".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".mpeg", ".mpg"})
 IMAGE_EXTS = frozenset({"png", "jpg", "jpeg", "bmp", "gif", "tiff", "webp"})
 VIDEO_EXTS_NO_DOT = frozenset(ext.lstrip(".") for ext in VIDEO_EXTS)
+VIDEO_SEEK_STEPS = (1.0, 2.0, 5.0, 10.0, 30.0)
+VIDEO_PREVIEW_FRAME_SECONDS = 0.2
+VIDEO_PREVIEW_INTERVAL = VIDEO_PREVIEW_FRAME_SECONDS
 
 # Ordered dither matrix for the 4×2 braille grid.
 BAYER_4x2 = np.array([
@@ -160,12 +163,44 @@ def _is_video_path(path):
     return os.path.splitext(str(path))[1].lower() in VIDEO_EXTS
 
 
+def _clamp_video_position(position, duration=None):
+    """Keep a video position within its known playable range."""
+    try:
+        position = max(0.0, float(position))
+    except (TypeError, ValueError):
+        return 0.0
+    if duration is None:
+        return position
+    try:
+        duration = float(duration)
+    except (TypeError, ValueError):
+        return position
+    return min(position, max(0.0, duration - 0.001))
+
+
+def _next_video_seek_step(current_step, direction):
+    """Return the next configured video seek step in the requested direction."""
+    closest_index = min(
+        range(len(VIDEO_SEEK_STEPS)),
+        key=lambda index: abs(VIDEO_SEEK_STEPS[index] - float(current_step)),
+    )
+    next_index = max(0, min(len(VIDEO_SEEK_STEPS) - 1, closest_index + direction))
+    return VIDEO_SEEK_STEPS[next_index]
+
+
+def _format_video_position(seconds):
+    total_tenths = max(0, int(round(float(seconds) * 10)))
+    minutes, tenths = divmod(total_tenths, 600)
+    return f"{minutes}:{tenths // 10:02d}.{tenths % 10}"
+
+
 def extract_video_frame(path, frametime, extractformat):
     import subprocess, io
     vcodec = 'mjpeg' if extractformat == 'jpeg' else 'png'
+    frametime = _clamp_video_position(frametime)
     ffmpeg_cmd = [
         'ffmpeg', '-y', '-nostdin', '-hide_banner', '-loglevel', 'error',
-        '-skip_frame', 'nokey', '-ss', str(int(frametime)), '-i', path,
+        '-ss', f'{frametime:.3f}', '-i', path,
         '-an', '-threads', '1', '-vsync', '0',
         '-vframes', '1',
         '-f', 'image2pipe',
@@ -322,6 +357,11 @@ _HELP_LINES = (
     "  + / - / 0      zoom in / out / reset",
     "  h / j / k / l  pan left / down / up / right",
     "  r / f          rotate clockwise / flip",
+    "VIDEO",
+    "  [ / ]          seek backward / forward",
+    "  { / }          smaller / larger seek step",
+    "  , / .          previous / next preview frame",
+    "  v              toggle 5 fps preview",
     "SLIDESHOW",
     "  s / S          forward / reverse",
     "  d / D          delay down / up",
@@ -363,7 +403,7 @@ def _show_metadata_panel(stdscr, lines):
 
 
 def _show_help_panel(stdscr):
-    _show_panel(stdscr, "Help", _HELP_LINES, emphasized_rows=(0, 4, 8, 11))
+    _show_panel(stdscr, "Help", _HELP_LINES, emphasized_rows=(0, 4, 8, 13, 16))
 
 
 def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extractformat, rotation_quadrants=0, flip_horizontal=False, dither_mode="ordered"):
@@ -455,10 +495,14 @@ def _neighbor_indices(index, neighbor_count, item_count):
     return indices
 
 
-def _format_status(idx, total, shown_name, zoom_factor, slideshow_active, slideshow_reverse, delay):
+def _format_status(idx, total, shown_name, zoom_factor, slideshow_active, slideshow_reverse, delay, video_position=None, video_seek_step=None, video_preview=False):
     slideshow_mode = "reverse" if slideshow_reverse else "forward"
     slideshow_status = slideshow_mode if slideshow_active else "off"
-    return f"[{idx + 1}/{total}] {shown_name} | {zoom_factor:.2f}x | slideshow: {slideshow_status} | {delay}s"
+    status = f"[{idx + 1}/{total}] {shown_name} | {zoom_factor:.2f}x | slideshow: {slideshow_status} | {delay}s"
+    if video_position is not None:
+        preview_status = "preview" if video_preview else "paused"
+        status += f" | video: {_format_video_position(video_position)} | step: {video_seek_step:g}s | {preview_status}"
+    return status
 
 
 def _update_pan_offset(pan_y, pan_x, key):
@@ -621,7 +665,7 @@ def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, colo
                 pass
 
 
-def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, slideshow_reverse=False, prepared=None, zoom_factor=1.0, pan_offset=(0.0, 0.0), rotation_quadrants=0, flip_horizontal=False):
+def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, slideshow_reverse=False, prepared=None, zoom_factor=1.0, pan_offset=(0.0, 0.0), rotation_quadrants=0, flip_horizontal=False, video_position=None, video_seek_step=None, video_preview=False):
     import time
     curses.curs_set(0)
     curses.use_default_colors()
@@ -632,6 +676,21 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         color_pair_attrs = None
 
     n = len(image_files)
+
+    def video_command(key):
+        if video_position is None:
+            return None
+        commands = {
+            ord('['): 'video_seek_backward',
+            ord(']'): 'video_seek_forward',
+            ord('{'): 'video_seek_step_down',
+            ord('}'): 'video_seek_step_up',
+            ord(','): 'video_previous_frame',
+            ord('.'): 'video_next_frame',
+            ord('v'): 'toggle_video_preview',
+        }
+        return commands.get(key)
+
     def floyd_steinberg_dither(img):
         arr = img.copy()
         h, w = arr.shape
@@ -709,7 +768,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
             braille_rows = None
         _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, color_pair_attrs, use_error_dither, use_ordered_dither, braille_rows)
         try:
-            status = _format_status(idx, n, shown_name, zoom_factor, slideshow, slideshow_reverse, wait_time)
+            status = _format_status(idx, n, shown_name, zoom_factor, slideshow, slideshow_reverse, wait_time, video_position, video_seek_step, video_preview)
             stdscr.addnstr(status_y, 0, status, max_x - 1, curses.A_REVERSE)
         except curses.error:
             pass
@@ -721,6 +780,9 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                 key = stdscr.getch()
                 if key != -1:
                     stdscr.nodelay(False)
+                    command = video_command(key)
+                    if command is not None:
+                        return command
                     if key == ord('+'):
                         return 'zoom_in'
                     if key == ord('-'):
@@ -749,9 +811,12 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                 time.sleep(0.01)
             frame_idx = (frame_idx + 1) % len(frames)
         else:
-            start_time = time.time() if slideshow else None
+            start_time = time.time() if slideshow or video_preview else None
             while True:
                 key = stdscr.getch()
+                command = video_command(key)
+                if command is not None:
+                    return command
                 if key == ord('s'):
                     return 'toggle_slideshow'
                 if key == ord('S'):
@@ -787,6 +852,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                     return key
                 if slideshow and start_time is not None and (time.time() - start_time) >= wait_time:
                     return 'slideshow_next'
+                if video_preview and start_time is not None and (time.time() - start_time) >= VIDEO_PREVIEW_INTERVAL:
+                    return 'video_preview_next'
                 time.sleep(0.01)
     return key
 
@@ -895,13 +962,63 @@ def main():
         max_workers = min(4, cache_size, max(1, os.cpu_count() or 1))
         prepared_cache = _PreparedFrameCache(cache_size)
         preload_futures = {}
+        video_positions = {}
+        video_durations = {}
+        video_seek_step = VIDEO_SEEK_STEPS[2]
+        video_preview_active = False
 
         def viewport_dims():
             max_y, max_x = stdscr.getmaxyx()
             return max_x * 2, max_y * 4
 
+        def video_path_for_index(image_idx):
+            image_item = image_files[image_idx]
+            if isinstance(image_item, tuple) and len(image_item) == 2:
+                image_item = image_item[0]
+            return image_item if _is_video_path(image_item) else None
+
+        def video_duration(path):
+            cache_key = os.fspath(path)
+            if cache_key not in video_durations:
+                metadata = _probe_video_metadata(path)
+                try:
+                    duration = float(metadata.get("duration"))
+                except (TypeError, ValueError):
+                    duration = None
+                video_durations[cache_key] = duration if duration is not None and duration >= 0 else None
+            return video_durations[cache_key]
+
+        def video_position_for_index(image_idx):
+            path = video_path_for_index(image_idx)
+            if path is None:
+                return None
+            cache_key = os.fspath(path)
+            if cache_key not in video_positions:
+                video_positions[cache_key] = _clamp_video_position(args.seek)
+            return video_positions[cache_key]
+
+        def move_video_position(image_idx, offset):
+            path = video_path_for_index(image_idx)
+            if path is None:
+                return False
+            cache_key = os.fspath(path)
+            current_position = video_position_for_index(image_idx)
+            next_position = _clamp_video_position(current_position + offset, video_duration(path))
+            video_positions[cache_key] = next_position
+            return next_position != current_position
+
         def preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal):
-            return (image_idx, img_w, img_h, sharpen, color, args.seek, args.format, rotation_quadrants, flip_horizontal)
+            return (
+                image_idx,
+                img_w,
+                img_h,
+                sharpen,
+                color,
+                video_position_for_index(image_idx),
+                args.format,
+                rotation_quadrants,
+                flip_horizontal,
+            )
 
         def preload_targets(image_idx, current_rotation, current_flip):
             targets = []
@@ -915,6 +1032,7 @@ def main():
             key = preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal)
             if key in prepared_cache or key in preload_futures:
                 return
+            video_position = video_position_for_index(image_idx)
             preload_futures[key] = executor.submit(
                 _prepare_render_item,
                 image_files[image_idx],
@@ -922,7 +1040,7 @@ def main():
                 img_h,
                 sharpen,
                 color,
-                args.seek,
+                args.seek if video_position is None else video_position,
                 args.format,
                 rotation_quadrants,
                 flip_horizontal,
@@ -959,7 +1077,7 @@ def main():
                 future = preload_futures.pop(key)
                 future.cancel()
 
-        # Pass seek/format to render via function attributes
+        # Provide the initial video seek/format for direct render calls.
         render._seek = args.seek
         render._format = args.format
         slideshow_active = slideshow
@@ -980,9 +1098,11 @@ def main():
                     pan_x = 0.0
                     rotation_quadrants = 0
                     flip_horizontal = False
+                    video_preview_active = False
                     last_rendered_idx = idx
 
                 img_w, img_h = viewport_dims()
+                current_video_position = video_position_for_index(idx)
                 targets = preload_targets(idx, rotation_quadrants, flip_horizontal)
                 target_keys = {
                     preload_key(target_idx, img_w, img_h, target_rotation, target_flip)
@@ -1011,6 +1131,9 @@ def main():
                         pan_offset=(pan_y, pan_x),
                         rotation_quadrants=rotation_quadrants,
                         flip_horizontal=flip_horizontal,
+                        video_position=current_video_position,
+                        video_seek_step=video_seek_step if current_video_position is not None else None,
+                        video_preview=video_preview_active and current_video_position is not None,
                     )
                 except Exception as e:
                     stdscr.clear()
@@ -1019,6 +1142,34 @@ def main():
                     stdscr.getch()
                     return
                 # Navigation
+                if key in ('video_seek_backward', 'video_seek_forward', 'video_previous_frame', 'video_next_frame'):
+                    offsets = {
+                        'video_seek_backward': -video_seek_step,
+                        'video_seek_forward': video_seek_step,
+                        'video_previous_frame': -VIDEO_PREVIEW_FRAME_SECONDS,
+                        'video_next_frame': VIDEO_PREVIEW_FRAME_SECONDS,
+                    }
+                    move_video_position(idx, offsets[key])
+                    video_preview_active = False
+                    continue
+                if key == 'video_seek_step_down':
+                    video_seek_step = _next_video_seek_step(video_seek_step, -1)
+                    continue
+                if key == 'video_seek_step_up':
+                    video_seek_step = _next_video_seek_step(video_seek_step, 1)
+                    continue
+                if key == 'toggle_video_preview':
+                    if video_path_for_index(idx) is not None:
+                        video_preview_active = not video_preview_active
+                        if video_preview_active:
+                            slideshow_active = False
+                            slideshow_reverse = False
+                    continue
+                if key == 'video_preview_next':
+                    if video_preview_active and move_video_position(idx, VIDEO_PREVIEW_FRAME_SECONDS):
+                        continue
+                    video_preview_active = False
+                    continue
                 if key == 'show_metadata':
                     _show_metadata_panel(stdscr, _metadata_lines(image_files[idx]))
                     continue

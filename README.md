@@ -16,6 +16,7 @@ It was written to be used as a terminal image viewer with [`nnn`](https://github
 - Rotate clockwise, flip
 - Bounded background preloading
 - Keyboard navigation and slideshow mode
+- Video playback with seek controls
 
 <br>
 <img width="1323" height="826" alt="image_01" src="https://github.com/user-attachments/assets/f2becbbc-cfeb-42b3-bd92-3882ff3fb570" />
@@ -116,10 +117,14 @@ Dotz keeps the current item plus one next and one previous item prepared in memo
 | f               | Flip horizontally |
 | i               | Show file metadata |
 | d, D            | Decrease/increase slideshow delay by 1 sec |
+| [, ]            | Seek backward/forward in a video by the current seek step |
+| {, }            | Decrease/increase the video seek step: 1, 2, 5, 10, or 30 sec |
+| , / .           | Move to the previous/next 0.2 sec video preview frame |
+| v               | Toggle a lightweight 5 fps video preview |
 | q, Esc          | Quit     |
 | ?               | Show keyboard help |
 
-The status bar shows the active zoom level, slideshow mode, and slideshow delay.
+The status bar shows the active zoom level, slideshow mode, and slideshow delay. For videos, it also shows the current timestamp, seek step, and preview state.
 
 ## Dependencies
 
