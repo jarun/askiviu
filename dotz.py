@@ -195,18 +195,23 @@ def _format_video_position(seconds):
     return f"{minutes}:{tenths // 10:02d}.{tenths % 10}"
 
 
-def extract_video_frame(path, frametime, extractformat):
+def extract_video_frame(path, frametime, extractformat, keyframes_only=False):
     import subprocess, io
     vcodec = 'mjpeg' if extractformat == 'jpeg' else 'png'
     frametime = _clamp_video_position(frametime)
     ffmpeg_cmd = [
         'ffmpeg', '-y', '-nostdin', '-hide_banner', '-loglevel', 'error',
+    ]
+    if keyframes_only:
+        ffmpeg_cmd.extend(('-skip_frame', 'nokey'))
+    ffmpeg_cmd.extend((
         '-ss', f'{frametime:.3f}', '-i', path,
         '-an', '-threads', '1', '-vsync', '0',
         '-vframes', '1',
         '-f', 'image2pipe',
         '-vcodec', vcodec,
-        '-']
+        '-',
+    ))
     result = subprocess.run(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode != 0 or not result.stdout:
         raise RuntimeError(f"ffmpeg error: {result.stderr.decode()[:100]}")
@@ -407,12 +412,12 @@ def _show_help_panel(stdscr):
     _show_panel(stdscr, "Help", _HELP_LINES, emphasized_rows=(0, 4, 8, 13, 16))
 
 
-def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extractformat, rotation_quadrants=0, flip_horizontal=False, dither_mode="ordered"):
+def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extractformat, rotation_quadrants=0, flip_horizontal=False, dither_mode="ordered", keyframes_only=False):
     """Prepare renderable frame buffers for one item. Safe to run in worker threads."""
     image_path = image_item
     display_name = None
     if _is_video_path(image_path):
-        img = extract_video_frame(image_path, seek, extractformat)
+        img = extract_video_frame(image_path, seek, extractformat, keyframes_only)
         display_name = image_path
         frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(img, img_w, img_h, sharpen, color, rotation_quadrants, flip_horizontal)
     else:
@@ -971,6 +976,7 @@ def main():
         preload_futures = {}
         video_positions = {}
         video_durations = {}
+        video_precise_paths = set()
         video_seek_step = VIDEO_SEEK_STEPS[2]
         video_preview_active = False
 
@@ -1012,7 +1018,13 @@ def main():
             current_position = video_position_for_index(image_idx)
             next_position = _clamp_video_position(current_position + offset, video_duration(path))
             video_positions[cache_key] = next_position
+            if next_position != current_position:
+                video_precise_paths.add(cache_key)
             return next_position != current_position
+
+        def use_fast_initial_extract(image_idx):
+            path = video_path_for_index(image_idx)
+            return path is not None and os.fspath(path) not in video_precise_paths
 
         def preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal):
             return (
@@ -1022,6 +1034,7 @@ def main():
                 sharpen,
                 color,
                 video_position_for_index(image_idx),
+                use_fast_initial_extract(image_idx),
                 args.format,
                 rotation_quadrants,
                 flip_horizontal,
@@ -1040,6 +1053,7 @@ def main():
             if key in prepared_cache or key in preload_futures:
                 return
             video_position = video_position_for_index(image_idx)
+            keyframes_only = use_fast_initial_extract(image_idx)
             preload_futures[key] = executor.submit(
                 _prepare_render_item,
                 image_files[image_idx],
@@ -1052,6 +1066,7 @@ def main():
                 rotation_quadrants,
                 flip_horizontal,
                 dither_mode,
+                keyframes_only,
             )
 
         def get_preloaded(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal, protected_keys, executor):
