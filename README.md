@@ -106,23 +106,23 @@ Dotz keeps the current item plus one next and one previous item prepared in memo
 
 | Key             | Action   |
 |-----------------|----------|
-| Right, n, Space | Next     |
-| Left, p         | Previous |
-| Up              | First    |
-| Down            | Last     |
-| s, S            | Toggle forward/reverse slideshow |
-| +, -, 0         | Zoom in, zoom out, zoom reset |
-| h, j, k, l      | Pan left, down, up, right while zoomed |
-| r               | Rotate clockwise |
-| f               | Flip horizontally |
-| i               | Show file metadata |
-| d, D            | Decrease/increase slideshow delay by 1 sec |
-| [, ]            | Seek backward/forward in a video by the current seek step |
-| {, }            | Decrease/increase the video seek step: 1, 2, 5, 10, or 30 sec |
-| , / .           | Move to the previous/next 0.2 sec video preview frame |
-| v               | Toggle a lightweight 5 fps video preview |
-| q, Esc          | Quit     |
-| ?               | Show keyboard help |
+| <kbd>Right</kbd>, <kbd>n</kbd>, <kbd>Space</kbd> | Next     |
+| <kbd>Left</kbd>, <kbd>p</kbd>         | Previous |
+| <kbd>Up</kbd>              | First    |
+| <kbd>Down</kbd>            | Last     |
+| <kbd>s</kbd>, <kbd>S</kbd>            | Toggle forward/reverse slideshow |
+| <kbd>+</kbd>, <kbd>-</kbd>, <kbd>0</kbd>         | Zoom in, zoom out, zoom reset |
+| <kbd>h</kbd>, <kbd>j</kbd>, <kbd>k</kbd>, <kbd>l</kbd>      | Pan left, down, up, right while zoomed |
+| <kbd>r</kbd>               | Rotate clockwise |
+| <kbd>f</kbd>               | Flip horizontally |
+| <kbd>i</kbd>               | Show file metadata |
+| <kbd>d</kbd>, <kbd>D</kbd>            | Decrease/increase slideshow delay by 1 sec |
+| <kbd>[</kbd>, <kbd>]</kbd>            | Seek backward/forward in a video by the current seek step |
+| <kbd>{</kbd>, <kbd>}</kbd>            | Decrease/increase the video seek step: 1, 2, 5, 10, or 30 sec |
+| <kbd>,</kbd>, <kbd>.</kbd>            | Move to the previous/next 0.2 sec video preview frame |
+| <kbd>v</kbd>               | Toggle a lightweight 5 fps video preview |
+| <kbd>q</kbd>, <kbd>Esc</kbd>          | Quit     |
+| <kbd>?</kbd>               | Show keyboard help |
 
 The two-line status bar shows the current item and filename first, followed by zoom, slideshow, and video state on the second line.
 
