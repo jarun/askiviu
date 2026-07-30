@@ -201,6 +201,12 @@ def _clamp_delay(delay):
     return max(1, min(60, delay))
 
 
+def _format_status(idx, total, shown_name, zoom_factor, slideshow_active, slideshow_reverse, delay):
+    slideshow_mode = "reverse" if slideshow_reverse else "forward"
+    slideshow_status = slideshow_mode if slideshow_active else "off"
+    return f"[{idx + 1}/{total}] {shown_name} | {zoom_factor:.2f}x | slideshow: {slideshow_status} | {delay}s"
+
+
 def _update_pan_offset(pan_y, pan_x, key):
     pan_step = 0.125
     if key == 'pan_left':
@@ -330,7 +336,7 @@ def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, colo
                 pass
 
 
-def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, prepared=None, zoom_factor=1.0, pan_offset=(0.0, 0.0)):
+def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, slideshow_reverse=False, prepared=None, zoom_factor=1.0, pan_offset=(0.0, 0.0)):
     import time
     curses.curs_set(0)
     curses.use_default_colors()
@@ -403,7 +409,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         block_means = blocks.mean(axis=(1, 3))
         _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, use_error_dither, use_ordered_dither)
         try:
-            stdscr.addnstr(status_y, 0, f"[{idx+1}/{n}] {zoom_factor:.2f}x {shown_name}", max_x - 1, curses.A_REVERSE)
+            status = _format_status(idx, n, shown_name, zoom_factor, slideshow, slideshow_reverse, wait_time)
+            stdscr.addnstr(status_y, 0, status, max_x - 1, curses.A_REVERSE)
         except curses.error:
             pass
         stdscr.refresh()
@@ -647,6 +654,7 @@ def main():
                         single_image_mode=False,
                         wait_time=current_delay,
                         slideshow=slideshow_active,
+                        slideshow_reverse=slideshow_reverse,
                         prepared=prepared,
                         zoom_factor=zoom_factor,
                         pan_offset=(pan_y, pan_x),

@@ -11,7 +11,7 @@ It was written to be used as a terminal image viewer with [`nnn`](https://github
 - xterm-256 color and grayscale
 - Dithering options (ordered, error diffusion)
 - Video preview (frame extraction with ffmpeg)
-- Zoom in, zoom out
+- Zoom in, zoom out, pan while zoom
 - Keyboard navigation and slideshow mode
 
 <br>
@@ -109,6 +109,8 @@ options:
 | h, j, k, l      | Pan left, down, up, right while zoomed |
 | d, D            | Decrease/increase slideshow delay by 1 sec |
 | q, Esc          | Quit     |
+
+The status bar shows the active zoom level, slideshow mode, and slideshow delay.
 
 ## Dependencies
 
