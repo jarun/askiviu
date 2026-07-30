@@ -417,15 +417,13 @@ def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extract
     image_path = image_item
     display_name = None
     if _is_video_path(image_path):
-        img = extract_video_frame(image_path, seek, extractformat, keyframes_only)
-        display_name = image_path
-        frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(img, img_w, img_h, sharpen, color, rotation_quadrants, flip_horizontal)
+        display_name, image_path = image_path, extract_video_frame(image_path, seek, extractformat, keyframes_only)
     else:
         if isinstance(image_path, tuple) and len(image_path) == 2:
             image_path, display_name = image_path
         elif isinstance(image_path, Image.Image):
             display_name = '[video frame]'
-        frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(image_path, img_w, img_h, sharpen, color, rotation_quadrants, flip_horizontal)
+    frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(image_path, img_w, img_h, sharpen, color, rotation_quadrants, flip_horizontal)
     block_means = [
         frame.reshape(img_h // 4, 4, img_w // 2, 2).mean(axis=(1, 3), dtype=np.float32)
         for frame in frames
@@ -682,6 +680,25 @@ def _discard_queued_key_repeats(stdscr, repeated_key):
             return
 
 
+_VIEW_KEY_COMMANDS = {
+    ord('+'): 'zoom_in', ord('-'): 'zoom_out', ord('0'): 'reset_zoom',
+    ord('h'): 'pan_left', ord('j'): 'pan_down', ord('k'): 'pan_up',
+    ord('l'): 'pan_right', ord('r'): 'rotate_clockwise',
+    ord('f'): 'flip_horizontal', ord('i'): 'show_metadata', ord('?'): 'show_help',
+}
+
+_VIDEO_KEY_COMMANDS = {
+    ord('['): 'video_seek_backward', ord(']'): 'video_seek_forward',
+    ord('{'): 'video_seek_step_down', ord('}'): 'video_seek_step_up',
+    ord(','): 'video_previous_frame', ord('.'): 'video_next_frame',
+    ord('v'): 'toggle_video_preview',
+}
+
+
+def _key_command(key, video_position):
+    return _VIEW_KEY_COMMANDS.get(key) or (_VIDEO_KEY_COMMANDS.get(key) if video_position is not None else None)
+
+
 def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, slideshow_reverse=False, prepared=None, zoom_factor=1.0, pan_offset=(0.0, 0.0), rotation_quadrants=0, flip_horizontal=False, video_position=None, video_seek_step=None, video_preview=False, discard_queued_key=None):
     import time
     curses.curs_set(0)
@@ -693,21 +710,6 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         color_pair_attrs = None
 
     n = len(image_files)
-
-    def video_command(key):
-        if video_position is None:
-            return None
-        commands = {
-            ord('['): 'video_seek_backward',
-            ord(']'): 'video_seek_forward',
-            ord('{'): 'video_seek_step_down',
-            ord('}'): 'video_seek_step_up',
-            ord(','): 'video_previous_frame',
-            ord('.'): 'video_next_frame',
-            ord('v'): 'toggle_video_preview',
-        }
-        return commands.get(key)
-
     def floyd_steinberg_dither(img):
         arr = img.copy()
         h, w = arr.shape
@@ -804,31 +806,9 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                 key = stdscr.getch()
                 if key != -1:
                     stdscr.nodelay(False)
-                    command = video_command(key)
+                    command = _key_command(key, video_position)
                     if command is not None:
                         return command
-                    if key == ord('+'):
-                        return 'zoom_in'
-                    if key == ord('-'):
-                        return 'zoom_out'
-                    if key == ord('0'):
-                        return 'reset_zoom'
-                    if key == ord('h'):
-                        return 'pan_left'
-                    if key == ord('j'):
-                        return 'pan_down'
-                    if key == ord('k'):
-                        return 'pan_up'
-                    if key == ord('l'):
-                        return 'pan_right'
-                    if key == ord('r'):
-                        return 'rotate_clockwise'
-                    if key == ord('f'):
-                        return 'flip_horizontal'
-                    if key == ord('i'):
-                        return 'show_metadata'
-                    if key == ord('?'):
-                        return 'show_help'
                     return key
                 if (time.time() - start_time) >= duration:
                     break
@@ -838,7 +818,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
             start_time = time.time() if slideshow or video_preview else None
             while True:
                 key = stdscr.getch()
-                command = video_command(key)
+                command = _key_command(key, video_position)
                 if command is not None:
                     return command
                 if key == ord('s'):
@@ -849,28 +829,6 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                     return 'increase_delay'
                 if key == ord('d'):
                     return 'decrease_delay'
-                if key == ord('+'):
-                    return 'zoom_in'
-                if key == ord('-'):
-                    return 'zoom_out'
-                if key == ord('0'):
-                    return 'reset_zoom'
-                if key == ord('h'):
-                    return 'pan_left'
-                if key == ord('j'):
-                    return 'pan_down'
-                if key == ord('k'):
-                    return 'pan_up'
-                if key == ord('l'):
-                    return 'pan_right'
-                if key == ord('r'):
-                    return 'rotate_clockwise'
-                if key == ord('f'):
-                    return 'flip_horizontal'
-                if key == ord('i'):
-                    return 'show_metadata'
-                if key == ord('?'):
-                    return 'show_help'
                 if key != -1:
                     stdscr.nodelay(False)
                     return key
