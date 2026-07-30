@@ -26,6 +26,7 @@ BRAILLE_MAP = (
     (0x04, 0x20),  # row 2
     (0x40, 0x80),  # row 3
 )
+_BRAILLE_BITS = np.asarray(BRAILLE_MAP, dtype=np.uint16)
 VIDEO_EXTS = frozenset({".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".mpeg", ".mpg"})
 IMAGE_EXTS = frozenset({"png", "jpg", "jpeg", "bmp", "gif", "tiff", "webp"})
 VIDEO_EXTS_NO_DOT = frozenset(ext.lstrip(".") for ext in VIDEO_EXTS)
@@ -38,6 +39,21 @@ BAYER_4x2 = np.array([
     [7, 3],
 ], dtype=np.float32)
 ORDERED_THRESHOLDS = (BAYER_4x2 + 0.5) / 8.0
+
+
+def _precompute_braille_rows(frame, dither_mode):
+    """Build immutable Braille output rows for non-error-dither frames."""
+    rows, cols = frame.shape[0] // 4, frame.shape[1] // 2
+    blocks = frame.reshape(rows, 4, cols, 2)
+    if dither_mode == "ordered":
+        dots = blocks > ORDERED_THRESHOLDS[None, :, None, :]
+    elif dither_mode == "none":
+        dots = blocks > 0.5
+    else:
+        return None
+    codes = BRAILLE_BASE + np.sum(dots * _BRAILLE_BITS[None, :, None, :], axis=(1, 3), dtype=np.uint16)
+    return tuple("".join(chr(int(code)) for code in row) for row in codes)
+
 
 # ── xterm-256 color cube helpers ──────────────────────────────────────────────
 # Colors 16-231 form a 6×6×6 RGB cube. Values per axis: 0,95,135,175,215,255.
@@ -350,7 +366,7 @@ def _show_help_panel(stdscr):
     _show_panel(stdscr, "Help", _HELP_LINES, emphasized_rows=(0, 4, 8, 11))
 
 
-def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extractformat, rotation_quadrants=0, flip_horizontal=False):
+def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extractformat, rotation_quadrants=0, flip_horizontal=False, dither_mode="ordered"):
     """Prepare renderable frame buffers for one item. Safe to run in worker threads."""
     image_path = image_item
     display_name = None
@@ -364,13 +380,19 @@ def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extract
         elif isinstance(image_path, Image.Image):
             display_name = '[video frame]'
         frames, color_maps, oy, ox, fit_h, fit_w, durations = _load_image(image_path, img_w, img_h, sharpen, color, rotation_quadrants, flip_horizontal)
+    block_means = [
+        frame.reshape(img_h // 4, 4, img_w // 2, 2).mean(axis=(1, 3), dtype=np.float32)
+        for frame in frames
+    ]
+    braille_rows = [
+        _precompute_braille_rows(frame, dither_mode) for frame in frames
+    ] if dither_mode in ("ordered", "none") else None
     return {
         "frames": frames,
         "color_maps": color_maps,
-        "block_means": [
-            frame.reshape(img_h // 4, 4, img_w // 2, 2).mean(axis=(1, 3), dtype=np.float32)
-            for frame in frames
-        ],
+        "block_means": block_means,
+        "braille_rows": braille_rows,
+        "braille_dither_mode": dither_mode,
         "durations": durations,
         "shown_name": _display_name(image_path, display_name),
     }
@@ -514,10 +536,42 @@ def _update_slideshow_state(slideshow_active, slideshow_reverse, key):
     return slideshow_active, slideshow_reverse
 
 
-def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, color_pair_attrs, use_error_dither, use_ordered_dither):
+def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, color_pair_attrs, use_error_dither, use_ordered_dither, braille_rows=None):
     ATTR_BOUNDS = (0.30, 0.62)
     half_threshold = 0.5
     for cy in range(rows):
+        braille_row = braille_rows[cy] if braille_rows is not None else None
+        color_row = color_map[cy] if color and color_map is not None else None
+        if braille_row is not None:
+            current_attr = None
+            start_x = 0
+            for cx in range(cols):
+                avg = block_means[cy, cx]
+                if avg < ATTR_BOUNDS[0]:
+                    attr = curses.A_DIM
+                elif avg < ATTR_BOUNDS[1]:
+                    attr = curses.A_NORMAL
+                else:
+                    attr = curses.A_BOLD
+                if color_row is not None and color_row[cx] >= 16:
+                    attr |= color_pair_attrs[color_row[cx] - 16]
+                if current_attr is None:
+                    start_x = cx
+                    current_attr = attr
+                elif current_attr != attr:
+                    try:
+                        stdscr.addstr(cy, start_x, braille_row[start_x:cx], current_attr)
+                    except curses.error:
+                        pass
+                    start_x = cx
+                    current_attr = attr
+            if current_attr is not None:
+                try:
+                    stdscr.addstr(cy, start_x, braille_row[start_x:], current_attr)
+                except curses.error:
+                    pass
+            continue
+
         segments = []
         current_attr = None
         current_chars = []
@@ -547,8 +601,8 @@ def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, colo
                     for dc in range(2):
                         if block[dr, dc] > half_threshold:
                             code |= BRAILLE_MAP[dr][dc]
-            if color and color_map is not None and color_map[cy, cx] >= 16:
-                attr |= color_pair_attrs[color_map[cy, cx] - 16]
+            if color_row is not None and color_row[cx] >= 16:
+                attr |= color_pair_attrs[color_row[cx] - 16]
             ch = chr(code)
             if current_attr is None or current_attr != attr:
                 if current_chars:
@@ -609,10 +663,11 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         if prepared is None:
             seek = getattr(render, '_seek', 10)
             fmt = getattr(render, '_format', 'jpeg')
-            prepared = _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, fmt, rotation_quadrants, flip_horizontal)
+            prepared = _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, fmt, rotation_quadrants, flip_horizontal, dither_mode)
         frames = prepared["frames"]
         color_maps = prepared["color_maps"]
         base_block_means = prepared.get("block_means")
+        base_braille_rows = prepared.get("braille_rows") if prepared.get("braille_dither_mode") == dither_mode else None
         durations = prepared["durations"]
         shown_name = prepared["shown_name"]
         is_animated = len(frames) > 1
@@ -641,6 +696,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
             else:
                 blocks = frame_view.reshape(rows, 4, cols, 2)
                 block_means = base_block_means[frame_idx] if base_block_means is not None else blocks.mean(axis=(1, 3), dtype=np.float32)
+            braille_rows = base_braille_rows[frame_idx] if base_braille_rows is not None else None
         else:
             frame_view = _zoom_array(perceptual, zoom_factor, target_size=(rows * 4, cols * 2), pan_offset=pan_offset)
             color_map = _zoom_array(color_map, zoom_factor, target_size=(rows, cols), pan_offset=pan_offset)
@@ -650,7 +706,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
             else:
                 blocks = frame_view.reshape(rows, 4, cols, 2)
             block_means = blocks.mean(axis=(1, 3), dtype=np.float32)
-        _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, color_pair_attrs, use_error_dither, use_ordered_dither)
+            braille_rows = None
+        _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, color_pair_attrs, use_error_dither, use_ordered_dither, braille_rows)
         try:
             status = _format_status(idx, n, shown_name, zoom_factor, slideshow, slideshow_reverse, wait_time)
             stdscr.addnstr(status_y, 0, status, max_x - 1, curses.A_REVERSE)
@@ -869,6 +926,7 @@ def main():
                 args.format,
                 rotation_quadrants,
                 flip_horizontal,
+                dither_mode,
             )
 
         def get_preloaded(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal, protected_keys, executor):
