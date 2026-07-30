@@ -254,6 +254,8 @@ def _update_slideshow_state(slideshow_active, slideshow_reverse, key):
             return False, False
         return True, False
     if key == 'toggle_slideshow_reverse':
+        if slideshow_active and slideshow_reverse:
+            return False, False
         return True, True
     return slideshow_active, slideshow_reverse
 
