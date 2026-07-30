@@ -672,7 +672,17 @@ def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, colo
                 pass
 
 
-def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, slideshow_reverse=False, prepared=None, zoom_factor=1.0, pan_offset=(0.0, 0.0), rotation_quadrants=0, flip_horizontal=False, video_position=None, video_seek_step=None, video_preview=False):
+def _discard_queued_key_repeats(stdscr, repeated_key):
+    while True:
+        queued_key = stdscr.getch()
+        if queued_key == -1:
+            return
+        if queued_key != repeated_key:
+            curses.ungetch(queued_key)
+            return
+
+
+def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, slideshow_reverse=False, prepared=None, zoom_factor=1.0, pan_offset=(0.0, 0.0), rotation_quadrants=0, flip_horizontal=False, video_position=None, video_seek_step=None, video_preview=False, discard_queued_key=None):
     import time
     curses.curs_set(0)
     curses.use_default_colors()
@@ -740,6 +750,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         frame_idx = 0
         key = -1
         stdscr.nodelay(True)
+        if discard_queued_key is not None:
+            _discard_queued_key_repeats(stdscr, discard_queued_key)
     except Exception as e:
         stdscr.clear()
         stdscr.addstr(0, 0, f"Render error: {e}")
@@ -1111,6 +1123,7 @@ def main():
         rotation_quadrants = 0
         flip_horizontal = False
         last_rendered_idx = idx
+        discard_queued_key = None
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             while True:
                 if idx != last_rendered_idx:
@@ -1156,7 +1169,9 @@ def main():
                         video_position=current_video_position,
                         video_seek_step=video_seek_step if current_video_position is not None else None,
                         video_preview=video_preview_active and current_video_position is not None,
+                        discard_queued_key=discard_queued_key,
                     )
+                    discard_queued_key = None
                 except Exception as e:
                     stdscr.clear()
                     stdscr.addstr(0, 0, f"Error: {e}")
@@ -1172,6 +1187,12 @@ def main():
                         'video_next_frame': VIDEO_PREVIEW_FRAME_SECONDS,
                     }
                     move_video_position(idx, offsets[key])
+                    discard_queued_key = {
+                        'video_seek_backward': ord('['),
+                        'video_seek_forward': ord(']'),
+                        'video_previous_frame': ord(','),
+                        'video_next_frame': ord('.'),
+                    }.get(key)
                     video_preview_active = False
                     continue
                 if key == 'video_seek_step_down':
