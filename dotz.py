@@ -33,6 +33,7 @@ VIDEO_EXTS_NO_DOT = frozenset(ext.lstrip(".") for ext in VIDEO_EXTS)
 VIDEO_SEEK_STEPS = (1.0, 2.0, 5.0, 10.0, 30.0)
 VIDEO_PREVIEW_FRAME_SECONDS = 0.2
 VIDEO_PREVIEW_INTERVAL = VIDEO_PREVIEW_FRAME_SECONDS
+STATUS_LINE_COUNT = 2
 
 # Ordered dither matrix for the 4×2 braille grid.
 BAYER_4x2 = np.array([
@@ -498,11 +499,12 @@ def _neighbor_indices(index, neighbor_count, item_count):
 def _format_status(idx, total, shown_name, zoom_factor, slideshow_active, slideshow_reverse, delay, video_position=None, video_seek_step=None, video_preview=False):
     slideshow_mode = "reverse" if slideshow_reverse else "forward"
     slideshow_status = slideshow_mode if slideshow_active else "off"
-    status = f"[{idx + 1}/{total}] {shown_name} | {zoom_factor:.2f}x | slideshow: {slideshow_status} | {delay}s"
+    item_status = f"[{idx + 1}/{total}] {shown_name}"
+    detail_status = f"{zoom_factor:.2f}x | slideshow: {slideshow_status} | {delay}s"
     if video_position is not None:
         preview_status = "preview" if video_preview else "paused"
-        status += f" | video: {_format_video_position(video_position)} | step: {video_seek_step:g}s | {preview_status}"
-    return status
+        detail_status += f" | video: {_format_video_position(video_position)} | step: {video_seek_step:g}s | {preview_status}"
+    return item_status, detail_status
 
 
 def _update_pan_offset(pan_y, pan_x, key):
@@ -714,7 +716,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
     max_y, max_x = stdscr.getmaxyx()
     rows = max_y
     cols = max_x
-    status_y = max_y - 1
+    status_y = max_y - STATUS_LINE_COUNT
     img_w = cols * 2
     img_h = rows * 4
     try:
@@ -768,8 +770,13 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
             braille_rows = None
         _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, color_pair_attrs, use_error_dither, use_ordered_dither, braille_rows)
         try:
-            status = _format_status(idx, n, shown_name, zoom_factor, slideshow, slideshow_reverse, wait_time, video_position, video_seek_step, video_preview)
-            stdscr.addnstr(status_y, 0, status, max_x - 1, curses.A_REVERSE)
+            item_status, detail_status = _format_status(idx, n, shown_name, zoom_factor, slideshow, slideshow_reverse, wait_time, video_position, video_seek_step, video_preview)
+            status_width = max(0, max_x - 1)
+            if max_y >= STATUS_LINE_COUNT:
+                stdscr.addnstr(status_y, 0, item_status, status_width, curses.A_REVERSE)
+                stdscr.addnstr(status_y + 1, 0, detail_status, status_width, curses.A_REVERSE)
+            else:
+                stdscr.addnstr(max_y - 1, 0, f"{item_status} | {detail_status}", status_width, curses.A_REVERSE)
         except curses.error:
             pass
         stdscr.refresh()

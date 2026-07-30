@@ -124,7 +124,7 @@ Dotz keeps the current item plus one next and one previous item prepared in memo
 | q, Esc          | Quit     |
 | ?               | Show keyboard help |
 
-The status bar shows the active zoom level, slideshow mode, and slideshow delay. For videos, it also shows the current timestamp, seek step, and preview state.
+The two-line status bar shows the current item and filename first, followed by zoom, slideshow, and video state on the second line.
 
 ## Dependencies
 
