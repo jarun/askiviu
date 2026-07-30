@@ -130,7 +130,7 @@ def _load_image(image_path, img_w, img_h, sharpen, color):
             canvas_rgb = np.zeros((img_h, img_w, 3), dtype=np.float64)
             canvas_rgb[oy:oy + fit_h, ox:ox + fit_w] = rgb_arr
             blocks = canvas_rgb[:cell_rows*4, :cell_cols*2, :].reshape(cell_rows, 4, cell_cols, 2, 3)
-            block_means = blocks.mean(axis=(1,3), dtype=np.float64)
+            block_means = blocks.mean(axis=(1, 3), dtype=np.float64)
             block_means_flat = block_means.reshape(-1, 3)
             diffs = block_means_flat[:, None, :] - _XTERM_TABLE[None, :, :]
             np.square(diffs, out=diffs)
@@ -283,8 +283,9 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
 
     stdscr.clear()
     max_y, max_x = stdscr.getmaxyx()
-    rows = max_y - 1
-    cols = max_x - 1
+    rows = max_y
+    cols = max_x
+    status_y = max_y - 1
     img_w = cols * 2
     img_h = rows * 4
     try:
@@ -336,7 +337,7 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         block_means = blocks.mean(axis=(1, 3))
         _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, use_error_dither, use_ordered_dither)
         try:
-            stdscr.addstr(rows, 0, f"[{idx+1}/{n}] {shown_name}", curses.A_REVERSE)
+            stdscr.addnstr(status_y, 0, f"[{idx+1}/{n}] {shown_name}", max_x - 1, curses.A_REVERSE)
         except curses.error:
             pass
         stdscr.refresh()
