@@ -114,6 +114,7 @@ options:
 | i               | Show file metadata |
 | d, D            | Decrease/increase slideshow delay by 1 sec |
 | q, Esc          | Quit     |
+| ?               | Show keyboard help |
 
 The status bar shows the active zoom level, slideshow mode, and slideshow delay.
 

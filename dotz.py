@@ -300,21 +300,39 @@ def _metadata_lines(image_item):
             image.close()
 
 
-def _show_metadata_panel(stdscr, lines):
-    """Show a centered metadata modal and wait for one key press."""
+_HELP_LINES = (
+    "NAVIGATION",
+    "  Right/n/Space  next",
+    "  Left/p         previous",
+    "  Up/Down        first / last",
+    "VIEW",
+    "  + / - / 0      zoom in / out / reset",
+    "  h / j / k / l  pan left / down / up / right",
+    "  r / f          rotate clockwise / flip",
+    "SLIDESHOW",
+    "  s / S          forward / reverse",
+    "  d / D          delay down / up",
+    "INFO & QUIT",
+    "  i metadata     ? help     q / Esc quit",
+)
+
+
+def _show_panel(stdscr, title, lines, emphasized_rows=()):
+    """Show a centered text panel and wait for one key press."""
     try:
         max_y, max_x = stdscr.getmaxyx()
         if max_y < 5 or max_x < 20:
             return
-        panel_width = min(max_x - 2, max(24, max(len(line) for line in lines) + 4))
+        panel_width = min(max_x - 2, max(24, len(title) + 6, max(len(line) for line in lines) + 4))
         panel_height = min(max_y - 2, len(lines) + 2)
         top = (max_y - panel_height) // 2
         left = (max_x - panel_width) // 2
         panel = curses.newwin(panel_height, panel_width, top, left)
         panel.box()
-        panel.addnstr(0, 2, " Metadata ", panel_width - 4, curses.A_BOLD)
+        panel.addnstr(0, 2, f" {title} ", panel_width - 4, curses.A_BOLD)
         for row, line in enumerate(lines[:panel_height - 2], start=1):
-            panel.addnstr(row, 2, line, panel_width - 4)
+            attr = curses.A_BOLD if row - 1 in emphasized_rows else curses.A_NORMAL
+            panel.addnstr(row, 2, line, panel_width - 4, attr)
         panel.refresh()
         stdscr.nodelay(False)
         panel.getch()
@@ -325,6 +343,14 @@ def _show_metadata_panel(stdscr, lines):
             stdscr.nodelay(True)
         except curses.error:
             pass
+
+
+def _show_metadata_panel(stdscr, lines):
+    _show_panel(stdscr, "Metadata", lines)
+
+
+def _show_help_panel(stdscr):
+    _show_panel(stdscr, "Help", _HELP_LINES, emphasized_rows=(0, 4, 8, 11))
 
 
 def _prepare_render_item(image_item, img_w, img_h, sharpen, color, seek, extractformat, rotation_quadrants=0, flip_horizontal=False):
@@ -597,6 +623,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                         return 'flip_horizontal'
                     if key == ord('i'):
                         return 'show_metadata'
+                    if key == ord('?'):
+                        return 'show_help'
                     return key
                 if (time.time() - start_time) >= duration:
                     break
@@ -634,6 +662,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                     return 'flip_horizontal'
                 if key == ord('i'):
                     return 'show_metadata'
+                if key == ord('?'):
+                    return 'show_help'
                 if key != -1:
                     stdscr.nodelay(False)
                     return key
@@ -844,6 +874,9 @@ def main():
                 # Navigation
                 if key == 'show_metadata':
                     _show_metadata_panel(stdscr, _metadata_lines(image_files[idx]))
+                    continue
+                if key == 'show_help':
+                    _show_help_panel(stdscr)
                     continue
                 if key == 'zoom_in':
                     zoom_factor = min(4.0, zoom_factor + 0.25)
