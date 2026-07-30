@@ -201,13 +201,29 @@ def _clamp_delay(delay):
     return max(1, min(60, delay))
 
 
-def _zoom_array(array, zoom_factor, target_size, fill_value=0):
-    """Return a centered nearest-neighbor zoom of a two-dimensional array."""
+def _update_pan_offset(pan_y, pan_x, key):
+    pan_step = 0.125
+    if key == 'pan_left':
+        pan_x -= pan_step
+    elif key == 'pan_right':
+        pan_x += pan_step
+    elif key == 'pan_up':
+        pan_y -= pan_step
+    elif key == 'pan_down':
+        pan_y += pan_step
+    return max(-1.0, min(1.0, pan_y)), max(-1.0, min(1.0, pan_x))
+
+
+def _zoom_array(array, zoom_factor, target_size, pan_offset=(0.0, 0.0), fill_value=0):
+    """Return a centered, optionally panned nearest-neighbor zoom of a two-dimensional array."""
     if array is None:
         return None
 
     target_h, target_w = target_size
     zoom_factor = float(zoom_factor or 1.0)
+    pan_y, pan_x = pan_offset
+    pan_y = max(-1.0, min(1.0, float(pan_y)))
+    pan_x = max(-1.0, min(1.0, float(pan_x)))
     if zoom_factor <= 0:
         zoom_factor = 1.0
     if zoom_factor == 1.0 and array.shape == (target_h, target_w):
@@ -217,8 +233,8 @@ def _zoom_array(array, zoom_factor, target_size, fill_value=0):
     if zoom_factor > 1.0:
         visible_h = source_h / zoom_factor
         visible_w = source_w / zoom_factor
-        top = (source_h - visible_h) / 2
-        left = (source_w - visible_w) / 2
+        top = (source_h - visible_h) * (pan_y + 1.0) / 2.0
+        left = (source_w - visible_w) * (pan_x + 1.0) / 2.0
         row_indices = np.minimum(
             source_h - 1,
             (top + (np.arange(target_h) + 0.5) * visible_h / target_h).astype(np.intp),
@@ -314,7 +330,7 @@ def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, colo
                 pass
 
 
-def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, prepared=None, zoom_factor=1.0):
+def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, prepared=None, zoom_factor=1.0, pan_offset=(0.0, 0.0)):
     import time
     curses.curs_set(0)
     curses.use_default_colors()
@@ -377,8 +393,8 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
         perceptual = frames[frame_idx]
         color_map = color_maps[frame_idx] if color_maps else None
         frame_view = perceptual[:rows * 4, :cols * 2]
-        frame_view = _zoom_array(frame_view, zoom_factor, target_size=(rows * 4, cols * 2))
-        color_map = _zoom_array(color_map, zoom_factor, target_size=(rows, cols))
+        frame_view = _zoom_array(frame_view, zoom_factor, target_size=(rows * 4, cols * 2), pan_offset=pan_offset)
+        color_map = _zoom_array(color_map, zoom_factor, target_size=(rows, cols), pan_offset=pan_offset)
         if use_error_dither:
             dithered = floyd_steinberg_dither(frame_view.copy())
             blocks = dithered.reshape(rows, 4, cols, 2)
@@ -404,6 +420,14 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                         return 'zoom_out'
                     if key == ord('0'):
                         return 'reset_zoom'
+                    if key == ord('h'):
+                        return 'pan_left'
+                    if key == ord('j'):
+                        return 'pan_down'
+                    if key == ord('k'):
+                        return 'pan_up'
+                    if key == ord('l'):
+                        return 'pan_right'
                     return key
                 if (time.time() - start_time) >= duration:
                     break
@@ -427,6 +451,14 @@ def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_m
                     return 'zoom_out'
                 if key == ord('0'):
                     return 'reset_zoom'
+                if key == ord('h'):
+                    return 'pan_left'
+                if key == ord('j'):
+                    return 'pan_down'
+                if key == ord('k'):
+                    return 'pan_up'
+                if key == ord('l'):
+                    return 'pan_right'
                 if key != -1:
                     stdscr.nodelay(False)
                     return key
@@ -583,12 +615,16 @@ def main():
         slideshow_reverse = False
         current_delay = wait_time
         zoom_factor = 1.0
+        pan_y = 0.0
+        pan_x = 0.0
         last_rendered_idx = idx
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             while True:
                 if idx != last_rendered_idx:
                     stdscr.erase()
                     zoom_factor = 1.0
+                    pan_y = 0.0
+                    pan_x = 0.0
                     last_rendered_idx = idx
 
                 img_w, img_h = viewport_dims()
@@ -613,6 +649,7 @@ def main():
                         slideshow=slideshow_active,
                         prepared=prepared,
                         zoom_factor=zoom_factor,
+                        pan_offset=(pan_y, pan_x),
                     )
                 except Exception as e:
                     stdscr.clear()
@@ -626,9 +663,18 @@ def main():
                     continue
                 if key == 'zoom_out':
                     zoom_factor = max(0.25, zoom_factor - 0.25)
+                    if zoom_factor <= 1.0:
+                        pan_y = 0.0
+                        pan_x = 0.0
                     continue
                 if key == 'reset_zoom':
                     zoom_factor = 1.0
+                    pan_y = 0.0
+                    pan_x = 0.0
+                    continue
+                if key in ('pan_left', 'pan_right', 'pan_up', 'pan_down'):
+                    if zoom_factor > 1.0:
+                        pan_y, pan_x = _update_pan_offset(pan_y, pan_x, key)
                     continue
                 if key == 'increase_delay':
                     current_delay = _clamp_delay(current_delay + 1)
