@@ -494,9 +494,9 @@ def main():
                     idx = (idx - 1) % n
                 else:
                     idx = (idx + 1) % n
-            elif key in (curses.KEY_RIGHT, ord('l'), ord(' ')):
+            elif key in (curses.KEY_RIGHT, ord('n'), ord(' ')):
                 idx = (idx + 1) % n
-            elif key in (curses.KEY_LEFT, ord('h')):
+            elif key in (curses.KEY_LEFT, ord('p')):
                 idx = (idx - 1) % n
             elif key == curses.KEY_UP:
                 idx = 0

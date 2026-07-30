@@ -91,8 +91,8 @@ options:
 
 | Key             | Action   |
 |-----------------|----------|
-| Right, l, Space | Next     |
-| Left, h         | Previous |
+| Right, n, Space | Next     |
+| Left, p         | Previous |
 | Up              | First    |
 | Down            | Last     |
 | s               | Toggle slideshow |
