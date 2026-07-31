@@ -1,6 +1,21 @@
-# dotz
+<h2 align="center">dotz - <i>terminal image and video previewer in Braille art</i></h2>
 
-Render images and video previews as Braille art in the terminal with xterm-256 color and ncurses dim/normal/bold attributes.
+<p align="center">
+<a href="https://github.com/jarun/dotz/releases/latest"><img src="https://img.shields.io/github/release/jarun/dotz.svg?maxAge=600" alt="Latest release" /></a>
+<a href="https://pypi.org/project/dotz/"><img src="https://img.shields.io/pypi/v/dotz.svg?maxAge=600" alt="PyPI" /></a>
+<a href="https://github.com/jarun/dotz/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellowgreen.svg?maxAge=2592000" alt="License" /></a>
+</p>
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/609805be-c0c5-4815-bb33-3bc70d69c152" width="75%" />
+</p>
+
+<p float="left">
+  <img src="https://github.com/user-attachments/assets/f2becbbc-cfeb-42b3-bd92-3882ff3fb570" width="49%" />
+  <img src="https://github.com/user-attachments/assets/62bc16a8-246b-4b5a-a11e-fd0faa5c8066" width="49.5%" />
+</p>
+
+Render image and video previews as Braille art in the terminal with xterm-256 color and ncurses dim/normal/bold attributes.
 
 It was written to be used as a terminal image viewer with [`nnn`](https://github.com/jarun/nnn). Works independently too.
 
@@ -18,20 +33,17 @@ It was written to be used as a terminal image viewer with [`nnn`](https://github
 - Keyboard navigation and slideshow mode
 - Video playback with seek controls
 
-<br>
-<img width="1323" height="826" alt="image_01" src="https://github.com/user-attachments/assets/f2becbbc-cfeb-42b3-bd92-3882ff3fb570" />
-<br><br>
-<img width="1333" height="827" alt="image_02" src="https://github.com/user-attachments/assets/62bc16a8-246b-4b5a-a11e-fd0faa5c8066" />
-<br><br>
-<img width="1301" height="954" alt="image_03" src="https://github.com/user-attachments/assets/609805be-c0c5-4815-bb33-3bc70d69c152" />
+#### Supported formats
 
+- **Image:** PNG, JPG, JPEG, BMP, GIF, TIFF, WEBP
+- **Video:** MP4, MKV, AVI, MOV, WEBM, FLV, WMV, MPEG, MPG
 
 ## Installation
 
 Install from PyPI:
 
 ```sh
-pip install dotz
+pip3 install dotz
 ```
 
 Or install from the source repository:
@@ -50,15 +62,22 @@ After installation, you can run the tool using:
 dotz [options] <file-or-directory>
 ```
 
-## Usage
-
-Run the local workspace copy directly with:
+You can also run the tool directly from the source directory:
 
 ```sh
 python3 dotz.py [options] <file-or-directory>
 ```
 
-Or use the installed entry point after reinstalling from the repository:
+#### Dependencies
+
+| Package   | Version    | Usage                                      |
+|-----------|------------|--------------------------------------------|
+| python    | >=3.7      | Required Python version                    |
+| numpy     | >=1.20     | Fast array operations for image processing |
+| Pillow    | >=8.0      | Image loading and manipulation             |
+| ffmpeg    | >=4.2      | Video frame extraction                     |
+
+## Usage
 
 ```
 usage: dotz [-h] [-S] [-C] [-d {ordered,error,none}] [-s [DELAY]] [-k SEEK] [-f {jpeg,png}] [path]
@@ -81,25 +100,23 @@ options:
                         Format for extracted video frames: jpeg (default) or png
 ```
 
-Dotz keeps the current item plus one next and one previous item prepared in memory.
-
 #### Examples
 
 - Syntax:
     ```sh
-    python -m dotz <file-or-directory>
+    python3 -m dotz <file-or-directory>
     ```
 - To render a single image:
     ```sh
-    python -m dotz path/to/image.jpg
+    python3 -m dotz path/to/image.jpg
     ```
 - To render all images and videos in a directory:
     ```sh
-    python -m dotz path/to/directory/
+    python3 -m dotz path/to/directory/
     ```
 - To run a slideshow with a custom delay (e.g. 3 seconds):
     ```sh
-    python -m dotz -s 3 path/to/directory/
+    python3 -m dotz -s 3 path/to/directory/
     ```
 
 ## Navigation
@@ -125,21 +142,6 @@ Dotz keeps the current item plus one next and one previous item prepared in memo
 | <kbd>?</kbd>               | Show keyboard help |
 
 The two-line status bar shows the current item and filename first, followed by zoom, slideshow, and video state on the second line.
-
-## Dependencies
-
-| Package   | Version    | Usage                                      |
-|-----------|------------|--------------------------------------------|
-| python    | >=3.7      | Required Python version                    |
-| numpy     | >=1.20     | Fast array operations for image processing |
-| Pillow    | >=8.0      | Image loading and manipulation             |
-| ffmpeg    | >=4.2      | Video frame extraction                     |
-
-## Formats
-
-**Image:** PNG, JPG, JPEG, BMP, GIF, TIFF, WEBP
-
-**Video:** MP4, MKV, AVI, MOV, WEBM, FLV, WMV, MPEG, MPG
 
 ## License
 
