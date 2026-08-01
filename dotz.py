@@ -500,27 +500,18 @@ def _neighbor_indices(index, neighbor_count, item_count):
 
 
 def _format_status(idx, total, shown_name, zoom_factor, slideshow_active, slideshow_reverse, delay, video_position=None, video_seek_step=None, video_preview=False):
-    slideshow_mode = "reverse" if slideshow_reverse else "forward"
-    slideshow_status = slideshow_mode if slideshow_active else "off"
     item_status = f"[{idx + 1}/{total}] {shown_name}"
-    detail_status = f"{zoom_factor:.2f}x | slideshow: {slideshow_status} | {delay}s"
+    detail_status = f"{zoom_factor:.2f}x | slideshow: {'reverse' if slideshow_reverse else 'forward' if slideshow_active else 'off'} | {delay}s"
     if video_position is not None:
-        preview_status = "preview" if video_preview else "paused"
-        detail_status += f" | video: {_format_video_position(video_position)} | step: {video_seek_step:g}s | {preview_status}"
+        detail_status += f" | video: {_format_video_position(video_position)} | step: {video_seek_step:g}s | {'preview' if video_preview else 'paused'}"
     return item_status, detail_status
 
 
 def _update_pan_offset(pan_y, pan_x, key):
     pan_step = 0.125
-    if key == 'pan_left':
-        pan_x -= pan_step
-    elif key == 'pan_right':
-        pan_x += pan_step
-    elif key == 'pan_up':
-        pan_y -= pan_step
-    elif key == 'pan_down':
-        pan_y += pan_step
-    return max(-1.0, min(1.0, pan_y)), max(-1.0, min(1.0, pan_x))
+    offsets = {'pan_left': (0.0, -pan_step), 'pan_right': (0.0, pan_step), 'pan_up': (-pan_step, 0.0), 'pan_down': (pan_step, 0.0)}
+    delta_y, delta_x = offsets.get(key, (0.0, 0.0))
+    return max(-1.0, min(1.0, pan_y + delta_y)), max(-1.0, min(1.0, pan_x + delta_x))
 
 
 def _zoom_array(array, zoom_factor, target_size, pan_offset=(0.0, 0.0), fill_value=0):
@@ -573,21 +564,24 @@ def _zoom_array(array, zoom_factor, target_size, pan_offset=(0.0, 0.0), fill_val
 
 def _update_slideshow_state(slideshow_active, slideshow_reverse, key):
     if key == 'toggle_slideshow':
-        if slideshow_active and slideshow_reverse:
-            return True, False
-        if slideshow_active:
-            return False, False
-        return True, False
+        return (True, False) if not slideshow_active else (False, False) if not slideshow_reverse else (True, False)
     if key == 'toggle_slideshow_reverse':
-        if slideshow_active and slideshow_reverse:
-            return False, False
-        return True, True
+        return (False, False) if slideshow_active and slideshow_reverse else (True, True)
     return slideshow_active, slideshow_reverse
 
 
+def _brightness_attr(avg, color_idx=None, color_pair_attrs=None):
+    attr = curses.A_DIM if avg < 0.30 else curses.A_NORMAL if avg < 0.62 else curses.A_BOLD
+    if color_idx is not None and color_idx >= 16 and color_pair_attrs is not None:
+        attr |= color_pair_attrs[color_idx - 16]
+    return attr
+
+
+def _braille_code(block, threshold):
+    return BRAILLE_BASE + int(np.sum((block > threshold) * _BRAILLE_BITS, dtype=np.uint16))
+
+
 def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, color_map, color, color_pair_attrs, use_error_dither, use_ordered_dither, braille_rows=None):
-    ATTR_BOUNDS = (0.30, 0.62)
-    half_threshold = 0.5
     for cy in range(rows):
         braille_row = braille_rows[cy] if braille_rows is not None else None
         color_row = color_map[cy] if color and color_map is not None else None
@@ -595,25 +589,15 @@ def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, colo
             current_attr = None
             start_x = 0
             for cx in range(cols):
-                avg = block_means[cy, cx]
-                if avg < ATTR_BOUNDS[0]:
-                    attr = curses.A_DIM
-                elif avg < ATTR_BOUNDS[1]:
-                    attr = curses.A_NORMAL
-                else:
-                    attr = curses.A_BOLD
-                if color_row is not None and color_row[cx] >= 16:
-                    attr |= color_pair_attrs[color_row[cx] - 16]
+                attr = _brightness_attr(block_means[cy, cx], color_row[cx] if color_row is not None else None, color_pair_attrs)
                 if current_attr is None:
-                    start_x = cx
-                    current_attr = attr
+                    start_x, current_attr = cx, attr
                 elif current_attr != attr:
                     try:
                         stdscr.addstr(cy, start_x, braille_row[start_x:cx], current_attr)
                     except curses.error:
                         pass
-                    start_x = cx
-                    current_attr = attr
+                    start_x, current_attr = cx, attr
             if current_attr is not None:
                 try:
                     stdscr.addstr(cy, start_x, braille_row[start_x:], current_attr)
@@ -625,40 +609,14 @@ def _draw_braille_rows(stdscr, rows, cols, blocks, block_means, thresholds, colo
         current_attr = None
         current_chars = []
         start_x = 0
+        threshold = thresholds if use_ordered_dither else 0.5
         for cx in range(cols):
-            avg = block_means[cy, cx]
-            if avg < ATTR_BOUNDS[0]:
-                attr = curses.A_DIM
-            elif avg < ATTR_BOUNDS[1]:
-                attr = curses.A_NORMAL
-            else:
-                attr = curses.A_BOLD
-            code = BRAILLE_BASE
-            block = blocks[cy, :, cx, :]
-            if use_error_dither:
-                for dr in range(4):
-                    for dc in range(2):
-                        if block[dr, dc] > half_threshold:
-                            code |= BRAILLE_MAP[dr][dc]
-            elif use_ordered_dither:
-                for dr in range(4):
-                    for dc in range(2):
-                        if block[dr, dc] > thresholds[dr, dc]:
-                            code |= BRAILLE_MAP[dr][dc]
-            else:
-                for dr in range(4):
-                    for dc in range(2):
-                        if block[dr, dc] > half_threshold:
-                            code |= BRAILLE_MAP[dr][dc]
-            if color_row is not None and color_row[cx] >= 16:
-                attr |= color_pair_attrs[color_row[cx] - 16]
-            ch = chr(code)
+            attr = _brightness_attr(block_means[cy, cx], color_row[cx] if color_row is not None else None, color_pair_attrs)
+            ch = chr(_braille_code(blocks[cy, :, cx, :], threshold))
             if current_attr is None or current_attr != attr:
                 if current_chars:
                     segments.append((start_x, current_attr, "".join(current_chars)))
-                start_x = cx
-                current_attr = attr
-                current_chars = [ch]
+                start_x, current_attr, current_chars = cx, attr, [ch]
             else:
                 current_chars.append(ch)
         if current_chars:
@@ -699,7 +657,7 @@ def _key_command(key, video_position):
     return _VIEW_KEY_COMMANDS.get(key) or (_VIDEO_KEY_COMMANDS.get(key) if video_position is not None else None)
 
 
-def render(stdscr, image_files, idx, sharpen, dither_mode, color, single_image_mode=False, wait_time=5, slideshow=False, slideshow_reverse=False, prepared=None, zoom_factor=1.0, pan_offset=(0.0, 0.0), rotation_quadrants=0, flip_horizontal=False, video_position=None, video_seek_step=None, video_preview=False, discard_queued_key=None):
+def render(stdscr, image_files, idx, sharpen, dither_mode, color, wait_time=5, slideshow=False, slideshow_reverse=False, prepared=None, zoom_factor=1.0, pan_offset=(0.0, 0.0), rotation_quadrants=0, flip_horizontal=False, video_position=None, video_seek_step=None, video_preview=False, discard_queued_key=None):
     import time
     curses.curs_set(0)
     curses.use_default_colors()
@@ -896,7 +854,7 @@ def main():
             os.dup2(tty_fd, 0)
             os.close(tty_fd)
             try:
-                curses.wrapper(lambda *a, **kw: render(*a, **kw, single_image_mode=True, wait_time=slideshow_delay, slideshow=slideshow), image_files, idx, not args.no_sharpen, args.dither, not args.no_color)
+                curses.wrapper(lambda *a, **kw: render(*a, **kw, wait_time=slideshow_delay, slideshow=slideshow), image_files, idx, not args.no_sharpen, args.dither, not args.no_color)
             finally:
                 os.dup2(orig_stdin_fd, 0)
                 os.close(orig_stdin_fd)
@@ -1115,7 +1073,6 @@ def main():
                         sharpen,
                         dither_mode,
                         color,
-                        single_image_mode=False,
                         wait_time=current_delay,
                         slideshow=slideshow_active,
                         slideshow_reverse=slideshow_reverse,
