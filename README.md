@@ -28,7 +28,7 @@ It was written to be used as a terminal image viewer with [`nnn`](https://github
 - Video preview (frame extraction with ffmpeg)
 - File metadata panel
 - Zoom in, zoom out, pan while zoom
-- Rotate clockwise, flip
+- Rotate clockwise, flip horizontally
 - Bounded background preloading
 - Keyboard navigation and slideshow mode
 - Video playback with seek controls
@@ -125,8 +125,7 @@ options:
 |-----------------|----------|
 | <kbd>Right</kbd>, <kbd>n</kbd>, <kbd>Space</kbd> | Next     |
 | <kbd>Left</kbd>, <kbd>p</kbd>         | Previous |
-| <kbd>Up</kbd>              | First    |
-| <kbd>Down</kbd>            | Last     |
+| <kbd>Up</kbd>, <kbd>Down</kbd>        | First, Last    |
 | <kbd>s</kbd>, <kbd>S</kbd>            | Toggle forward/reverse slideshow |
 | <kbd>+</kbd>, <kbd>-</kbd>, <kbd>0</kbd>         | Zoom in, zoom out, zoom reset |
 | <kbd>h</kbd>, <kbd>j</kbd>, <kbd>k</kbd>, <kbd>l</kbd>      | Pan left, down, up, right while zoomed |
