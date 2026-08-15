@@ -1,20 +1,5 @@
 <h2 align="center">dotz - <i>terminal image and video previewer in Braille art</i></h2>
 
-<p align="center">
-<a href="https://github.com/jarun/dotz/releases/latest"><img src="https://img.shields.io/github/release/jarun/dotz.svg?maxAge=600" alt="Latest release" /></a>
-<a href="https://pypi.org/project/dotz/"><img src="https://img.shields.io/pypi/v/dotz.svg?maxAge=600" alt="PyPI" /></a>
-<a href="https://github.com/jarun/dotz/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellowgreen.svg?maxAge=2592000" alt="License" /></a>
-</p>
-
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/609805be-c0c5-4815-bb33-3bc70d69c152" width="75%" />
-</p>
-
-<p float="left">
-  <img src="https://github.com/user-attachments/assets/f2becbbc-cfeb-42b3-bd92-3882ff3fb570" width="49%" />
-  <img src="https://github.com/user-attachments/assets/62bc16a8-246b-4b5a-a11e-fd0faa5c8066" width="49.5%" />
-</p>
-
 Render image and video previews as Braille art in the terminal with xterm-256 color and ncurses dim/normal/bold attributes.
 
 It was written to be used as a terminal image viewer with [`nnn`](https://github.com/jarun/nnn). Works independently too.
@@ -32,6 +17,14 @@ It was written to be used as a terminal image viewer with [`nnn`](https://github
 - Bounded background preloading
 - Keyboard navigation and slideshow mode
 - Video playback with seek controls
+
+<br>
+<img width="1323" height="826" alt="image_01" src="https://github.com/user-attachments/assets/f2becbbc-cfeb-42b3-bd92-3882ff3fb570" />
+<br><br>
+<img width="1333" height="827" alt="image_02" src="https://github.com/user-attachments/assets/62bc16a8-246b-4b5a-a11e-fd0faa5c8066" />
+<br><br>
+<img width="1301" height="954" alt="image_03" src="https://github.com/user-attachments/assets/609805be-c0c5-4815-bb33-3bc70d69c152" />
+
 
 #### Supported formats
 
