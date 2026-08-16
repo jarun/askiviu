@@ -63,12 +63,12 @@ python3 dotz.py [options] <file-or-directory>
 
 #### Dependencies
 
-| Package   | Version    | Usage                                      |
-|-----------|------------|--------------------------------------------|
-| python    | >=3.7      | Required Python version                    |
-| numpy     | >=1.20     | Fast array operations for image processing |
-| Pillow    | >=8.0      | Image loading and manipulation             |
-| ffmpeg    | >=4.2      | Video frame extraction                     |
+| Package   | Version | Usage                                      |
+|-----------|---------|--------------------------------------------|
+| python    | >=3.10  | Required Python version                    |
+| numpy     | >=1.20  | Fast array operations for image processing |
+| Pillow    | >=8.0   | Image loading and manipulation             |
+| ffmpeg    | >=4.2   | Video frame extraction                     |
 
 ## Usage
 
