@@ -30,9 +30,11 @@ _BRAILLE_BITS = np.asarray(BRAILLE_MAP, dtype=np.uint16)
 VIDEO_EXTS = frozenset({".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".mpeg", ".mpg"})
 IMAGE_EXTS = frozenset({"png", "jpg", "jpeg", "bmp", "gif", "tiff", "webp"})
 VIDEO_EXTS_NO_DOT = frozenset(ext.lstrip(".") for ext in VIDEO_EXTS)
-VIDEO_SEEK_STEPS = (1.0, 2.0, 5.0, 10.0, 30.0)
-VIDEO_PREVIEW_FRAME_SECONDS = 0.2
+VIDEO_SEEK_STEPS = (1.0, 2.0, 5.0, 10.0, 30.0, 60.0)
+VIDEO_PREVIEW_FRAME_SECONDS = 0.1
 VIDEO_PREVIEW_INTERVAL = VIDEO_PREVIEW_FRAME_SECONDS
+VIDEO_PREVIEW_BUFFER_FRAMES = 4
+VIDEO_DECODE_THREADS = max(1, min(4, (os.cpu_count() or 1) // VIDEO_PREVIEW_BUFFER_FRAMES))
 STATUS_LINE_COUNT = 2
 
 # Ordered dither matrix for the 4×2 braille grid.
@@ -206,7 +208,7 @@ def extract_video_frame(path, frametime, extractformat, keyframes_only=False):
         ffmpeg_cmd.extend(('-skip_frame', 'nokey'))
     ffmpeg_cmd.extend((
         '-ss', f'{frametime:.3f}', '-i', path,
-        '-an', '-threads', '1', '-vsync', '0',
+        '-an', '-threads', str(VIDEO_DECODE_THREADS), '-vsync', '0',
         '-vframes', '1',
         '-f', 'image2pipe',
         '-vcodec', vcodec,
@@ -367,7 +369,7 @@ _HELP_LINES = (
     "  [ / ]          seek backward / forward",
     "  { / }          smaller / larger seek step",
     "  , / .          previous / next preview frame",
-    "  v              toggle 5 fps preview",
+    "  v              toggle 10 fps preview",
     "SLIDESHOW",
     "  s / S          forward / reverse",
     "  d / D          delay down / up by 1 sec",
@@ -830,7 +832,7 @@ def main():
     args = parser.parse_args()
 
     preload_neighbors = 1
-    cache_size = 3
+    cache_size = max(3, VIDEO_PREVIEW_BUFFER_FRAMES + 1)
 
     slideshow = args.delay is not None
     slideshow_delay = _clamp_delay(args.delay if slideshow else 5)
@@ -954,14 +956,16 @@ def main():
             path = video_path_for_index(image_idx)
             return path is not None and os.fspath(path) not in video_precise_paths
 
-        def preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal):
+        def preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal, video_position=None):
+            if video_position is None:
+                video_position = video_position_for_index(image_idx)
             return (
                 image_idx,
                 img_w,
                 img_h,
                 sharpen,
                 color,
-                video_position_for_index(image_idx),
+                video_position,
                 use_fast_initial_extract(image_idx),
                 args.format,
                 rotation_quadrants,
@@ -976,11 +980,12 @@ def main():
                 targets.append((target_idx, rotation, flip))
             return targets
 
-        def schedule_preload(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal, executor):
-            key = preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal)
+        def schedule_preload(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal, executor, video_position=None):
+            key = preload_key(image_idx, img_w, img_h, rotation_quadrants, flip_horizontal, video_position)
             if key in prepared_cache or key in preload_futures:
                 return
-            video_position = video_position_for_index(image_idx)
+            if video_position is None:
+                video_position = video_position_for_index(image_idx)
             keyframes_only = use_fast_initial_extract(image_idx)
             preload_futures[key] = executor.submit(
                 _prepare_render_item,
@@ -1059,7 +1064,31 @@ def main():
                     preload_key(target_idx, img_w, img_h, target_rotation, target_flip)
                     for target_idx, target_rotation, target_flip in targets
                 }
+                preview_positions = ()
+                if video_preview_active and current_video_position is not None:
+                    duration = video_duration(video_path_for_index(idx))
+                    preview_positions = tuple(
+                        _clamp_video_position(
+                            current_video_position + frame_offset * VIDEO_PREVIEW_FRAME_SECONDS,
+                            duration,
+                        )
+                        for frame_offset in range(VIDEO_PREVIEW_BUFFER_FRAMES + 1)
+                    )
+                    target_keys.update(
+                        preload_key(idx, img_w, img_h, rotation_quadrants, flip_horizontal, position)
+                        for position in preview_positions
+                    )
                 trim_preload_cache(target_keys)
+                for position in preview_positions:
+                    schedule_preload(
+                        idx,
+                        img_w,
+                        img_h,
+                        rotation_quadrants,
+                        flip_horizontal,
+                        executor,
+                        position,
+                    )
                 for target_idx, target_rotation, target_flip in targets:
                     schedule_preload(target_idx, img_w, img_h, target_rotation, target_flip, executor)
 
@@ -1117,9 +1146,11 @@ def main():
                     video_seek_step = _next_video_seek_step(video_seek_step, 1)
                     continue
                 if key == 'toggle_video_preview':
-                    if video_path_for_index(idx) is not None:
+                    video_path = video_path_for_index(idx)
+                    if video_path is not None:
                         video_preview_active = not video_preview_active
                         if video_preview_active:
+                            video_precise_paths.add(os.fspath(video_path))
                             slideshow_active = False
                             slideshow_reverse = False
                     continue

@@ -127,9 +127,9 @@ options:
 | <kbd>i</kbd>               | Show file metadata |
 | <kbd>d</kbd>, <kbd>D</kbd>            | Decrease/increase slideshow delay by 1 sec |
 | <kbd>[</kbd>, <kbd>]</kbd>            | Seek backward/forward in a video by the current seek step |
-| <kbd>{</kbd>, <kbd>}</kbd>            | Decrease/increase the video seek step: 1, 2, 5, 10, or 30 sec |
-| <kbd>,</kbd>, <kbd>.</kbd>            | Move to the previous/next 0.2 sec video preview frame |
-| <kbd>v</kbd>               | Toggle a lightweight 5 fps video preview |
+| <kbd>{</kbd>, <kbd>}</kbd>            | Decrease/increase the video seek step: 1, 2, 5, 10, 30, or 60 sec |
+| <kbd>,</kbd>, <kbd>.</kbd>            | Move to the previous/next 0.1 sec video preview frame |
+| <kbd>v</kbd>               | Toggle a lightweight 10 fps video preview |
 | <kbd>q</kbd>, <kbd>Esc</kbd>          | Quit     |
 | <kbd>?</kbd>               | Show keyboard help |
 
