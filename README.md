@@ -11,12 +11,12 @@ It was written to be used as a terminal image viewer with [`nnn`](https://github
 - xterm-256 color and grayscale
 - Dithering options (ordered, error diffusion)
 - Video preview (frame extraction with ffmpeg)
+- Video playback with seek controls
 - File metadata panel
 - Zoom in, zoom out, pan while zoom
 - Rotate clockwise, flip horizontally
 - Bounded background preloading
 - Keyboard navigation and slideshow mode
-- Video playback with seek controls
 
 <br>
 <img width="1323" height="826" alt="image_01" src="https://github.com/user-attachments/assets/f2becbbc-cfeb-42b3-bd92-3882ff3fb570" />
@@ -73,7 +73,7 @@ python3 dotz.py [options] <file-or-directory>
 ## Usage
 
 ```
-usage: dotz [-h] [-S] [-C] [-d {ordered,error,none}] [-s [DELAY]] [-k SEEK] [-f {jpeg,png}] [path]
+usage: dotz [-h] [-S] [-C] [-d {ordered,error,none}] [-s [DELAY]] [-k SEEK] [-f {jpeg,png}] [-F {5,6,7,8,9,10}] [path]
 
 Render an image or all images/videos in a directory as Braille cells using ncurses with optional xterm-256 color.
 
@@ -91,6 +91,8 @@ options:
   -k SEEK, --seek SEEK  Seek position to extract frame from videos in seconds (default: 10)
   -f {jpeg,png}, --format {jpeg,png}
                         Format for extracted video frames: jpeg (default) or png
+  -F {5,6,7,8,9,10}, --fps {5,6,7,8,9,10}
+                        Video playback frame rate between 5 and 10 FPS (default: 5)
 ```
 
 #### Examples
@@ -111,6 +113,10 @@ options:
     ```sh
     python3 -m dotz -s 3 path/to/directory/
     ```
+- To use a custom video playback frame rate (e.g. 5 FPS):
+    ```sh
+    python3 -m dotz -F 5 path/to/video.mp4
+    ```
 
 ## Navigation
 
@@ -128,8 +134,8 @@ options:
 | <kbd>d</kbd>, <kbd>D</kbd>            | Decrease/increase slideshow delay by 1 sec |
 | <kbd>[</kbd>, <kbd>]</kbd>            | Seek backward/forward in a video by the current seek step |
 | <kbd>{</kbd>, <kbd>}</kbd>            | Decrease/increase the video seek step: 1, 2, 5, 10, 30, or 60 sec |
-| <kbd>,</kbd>, <kbd>.</kbd>            | Move to the previous/next 0.1 sec video preview frame |
-| <kbd>v</kbd>               | Toggle a lightweight 10 fps video preview |
+| <kbd>,</kbd>, <kbd>.</kbd>            | Move to the previous/next video playback frame |
+| <kbd>v</kbd>               | Toggle video playback |
 | <kbd>q</kbd>, <kbd>Esc</kbd>          | Quit     |
 | <kbd>?</kbd>               | Show keyboard help |
 
